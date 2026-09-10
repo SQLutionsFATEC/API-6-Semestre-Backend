@@ -25,7 +25,7 @@ load_dotenv(BASE_DIR.parent / 'deploy' / '.env')
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 FAKER_LOCALE = 'pt_BR'
 ALLOWED_HOSTS = [
     host.strip() for host in os.environ.get('ALLOWED_HOSTS', '*').split(',')
@@ -124,3 +124,7 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 CORS_ALLOW_ALL_ORIGINS = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Configuração de arquivos de mídia (uploads de usuários)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

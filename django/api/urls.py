@@ -16,6 +16,8 @@ Including another URLconf
 """
 
 from django.urls import include, path
+from django.conf import settings
+from django.conf.urls.static import static
 from rest_framework.routers import DefaultRouter
 
 from api.views.documento_api import DocumentoViewSet
@@ -28,3 +30,6 @@ router.register(r'etiquetas', EtiquetaViewSet, basename='etiqueta')
 urlpatterns = [
     path('api/', include(router.urls)),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
