@@ -19,9 +19,11 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from api.views.documento_api import DocumentoViewSet
+from api.views.etiqueta_api import EtiquetaViewSet
 
 router = DefaultRouter()
 router.register(r'documentos', DocumentoViewSet, basename='documento')
+router.register(r'etiquetas', EtiquetaViewSet, basename='etiqueta')
 
 urlpatterns = [
     path('api/', include(router.urls)),
