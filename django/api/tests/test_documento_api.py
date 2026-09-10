@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from api.models import Documento
+from api.models import Documento, Etiqueta
 
 
 class DocumentoApiTest(TestCase):
@@ -12,9 +12,12 @@ class DocumentoApiTest(TestCase):
             nivel='Público',
             data='documentos/manual.pdf',
         )
+        self.etiqueta = Etiqueta.objects.create(
+            nome='Importante'
+        )
 
     def test_retorna_documento_pelo_id(self):
-        response = self.client.get(f'/api/documentos/{self.documento.id_documento}')
+        response = self.client.get(f'/api/documentos/{self.documento.id_documento}/')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {
@@ -22,22 +25,81 @@ class DocumentoApiTest(TestCase):
             'tipo_arquivo': 'pdf',
             'nome': 'Manual.pdf',
             'setor': 'TI',
-            'data_atualizacao': self.documento.data_atualizacao.isoformat(),
+            'data_atualizacao': self.documento.data_atualizacao.isoformat().replace('+00:00', 'Z'),
             'nivel': 'Público',
-            'data': 'documentos/manual.pdf',
+            'data': 'http://testserver/documentos/manual.pdf',
         })
 
     def test_retorna_404_para_documento_inexistente(self):
-        response = self.client.get('/api/documentos/999999')
+        response = self.client.get('/api/documentos/999999/')
 
         self.assertEqual(response.status_code, 404)
 
-    def test_retorna_400_para_id_invalido(self):
-        response = self.client.get('/api/documentos/abc')
+    def test_retorna_404_para_id_invalido(self):
+        response = self.client.get('/api/documentos/abc/')
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 404)
 
-    def test_retorna_400_quando_id_nao_for_informado(self):
+    def test_retorna_200_ao_listar_documentos(self):
         response = self.client.get('/api/documentos/')
 
+        self.assertEqual(response.status_code, 200)
+
+    # Testes para GET /api/documentos/{id}/etiquetas/
+    def test_retorna_etiquetas_do_documento_com_sucesso(self):
+        self.documento.etiquetas.add(self.etiqueta)
+        response = self.client.get(f'/api/documentos/{self.documento.id_documento}/etiquetas/')
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()['etiquetas']), 1)
+        self.assertEqual(response.json()['etiquetas'][0]['nome'], 'Importante')
+
+    def test_retorna_404_ao_buscar_etiquetas_de_documento_inexistente(self):
+        response = self.client.get('/api/documentos/999999/etiquetas/')
+        
+        self.assertEqual(response.status_code, 404)
+
+    def test_retorna_400_ao_buscar_etiquetas_com_id_invalido(self):
+        response = self.client.get('/api/documentos/abc/etiquetas/')
+        
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['erro'], 'id_documento deve ser um número inteiro válido.')
+
+    # Testes para POST /api/documentos/etiqueta/
+    def test_vincula_etiqueta_ao_documento_com_sucesso(self):
+        payload = {
+            'id_documento': self.documento.id_documento,
+            'id_etiqueta': self.etiqueta.id_etiqueta
+        }
+        response = self.client.post('/api/documentos/etiqueta/', data=payload, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['status'], 'Etiqueta vinculada com sucesso!')
+        self.assertTrue(self.documento.etiquetas.filter(id_etiqueta=self.etiqueta.id_etiqueta).exists())
+
+    def test_retorna_400_ao_vincular_etiqueta_sem_enviar_dados(self):
+        payload = {}
+        response = self.client.post('/api/documentos/etiqueta/', data=payload, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['erro'], 'Os campos id_documento e id_etiqueta são obrigatórios.')
+
+    def test_retorna_404_ao_vincular_com_documento_inexistente(self):
+        payload = {
+            'id_documento': 999999,
+            'id_etiqueta': self.etiqueta.id_etiqueta
+        }
+        response = self.client.post('/api/documentos/etiqueta/', data=payload, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['erro'], 'Documento não encontrado.')
+
+    def test_retorna_404_ao_vincular_com_etiqueta_inexistente(self):
+        payload = {
+            'id_documento': self.documento.id_documento,
+            'id_etiqueta': 999999
+        }
+        response = self.client.post('/api/documentos/etiqueta/', data=payload, content_type='application/json')
+        
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['erro'], 'Etiqueta não encontrada.')
