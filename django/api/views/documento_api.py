@@ -8,6 +8,8 @@ from api.models import Etiqueta
 from api.serializers import DocumentoSerializer
 from api.serializers import EtiquetaSerializer
 
+from django.http import Http404
+
 class DocumentoViewSet(ModelViewSet):
 	queryset = Documento.objects.all()
 	serializer_class = DocumentoSerializer
@@ -22,9 +24,8 @@ class DocumentoViewSet(ModelViewSet):
 		url_path='etiquetas',
 		detail=True
 	)
-	def etiquetas(self, request, *args, **kwargs):
-		id_documento = kwargs.get('id_documento')
-		
+	def etiquetas(self, request, id_documento=None):
+
 		if (
 			id_documento is None
 			or not str(id_documento).isdigit()
@@ -37,7 +38,14 @@ class DocumentoViewSet(ModelViewSet):
 				status=status.HTTP_400_BAD_REQUEST
 			)
 
-		documento = self.get_object()
+		try:
+			documento = self.get_object()
+		except Http404:
+			return Response(
+				{'erro': 'Documento não encontrado.'},
+				status=status.HTTP_404_NOT_FOUND
+			)
+
 		etiquetas = documento.etiquetas.all()
 		serializer = EtiquetaSerializer(etiquetas, many=True)
 		
