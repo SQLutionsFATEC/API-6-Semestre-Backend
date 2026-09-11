@@ -27,7 +27,7 @@ class DocumentoApiTest(TestCase):
             'setor': 'TI',
             'data_atualizacao': self.documento.data_atualizacao.isoformat().replace('+00:00', 'Z'),
             'nivel': 'Público',
-            'data': 'http://testserver/documentos/manual.pdf',
+            'data': 'http://testserver/media/documentos/manual.pdf',
         })
 
     def test_retorna_404_para_documento_inexistente(self):
