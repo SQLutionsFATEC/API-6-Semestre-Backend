@@ -11,14 +11,14 @@ services:
     env_file:
       - .env
     environment:
-      - DB_NAME=${MYSQL_DATABASE}
-      - DB_USER=${MYSQL_USER}
-      - DB_PASSWORD=${MYSQL_PASSWORD}
-      - DB_HOST=custom-mysql
-      - DB_PORT=3306
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_HOST=postgres
+      - DB_PORT=5432
       - RUN_SEED=${RUN_SEED:-false}
     depends_on:
-      custom-mysql:
+      postgres:
         condition: service_healthy
     volumes:
       - ../django:/app
@@ -42,35 +42,35 @@ services:
       - backend
 
   # -------------------- Database --------------------
-  custom-mysql:
+  postgres:
     build:
-      context: ./mysql
-    container_name: mysql-db
+      context: ./postgres
+    container_name: postgres-db
     environment:
-      - MYSQL_USER=${MYSQL_USER}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - MYSQL_DATABASE=${MYSQL_DATABASE}
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - mysqldata:/var/lib/mysql
+      - postgresdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin" ,"ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
 # -------------------- Monitoring --------------------
 
-  mysql-exporter:
-    image: prom/mysqld-exporter:v0.19.0
-    container_name: mysql-exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
     command:
-      - "--mysqld.address=custom-mysql:3306"
-      - "--mysqld.username=root:${MYSQL_ROOT_PASSWORD}"
+      - "--web.listen-address=:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
     depends_on:
-      custom-mysql:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 
@@ -86,7 +86,7 @@ services:
       - "9090:9090"
     depends_on:
       - backend
-      - mysql-exporter
+      - postgres-exporter
 
   grafana:
     image: grafana/grafana-oss:latest
@@ -103,7 +103,7 @@ services:
       - prometheus
 
 volumes:
-  mysqldata:
+  postgresdata:
   prometheusdata:
   grafanadata:    
 

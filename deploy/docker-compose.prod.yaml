@@ -14,9 +14,9 @@ services:
     env_file:
       - ../.env
     environment:
-      - DB_NAME=${MYSQL_DATABASE}
-      - DB_USER=${MYSQL_USER}
-      - DB_PASSWORD=${MYSQL_PASSWORD}
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
     volumes:
@@ -43,12 +43,12 @@ services:
       - grafana
 
   # -------------------- Monitoring --------------------
-  mysql-exporter:
-    image: prom/mysqld-exporter:v0.19.0
-    container_name: mysql-exporter-prod
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter-prod
     restart: always
     environment:
-      - DATA_SOURCE_NAME=root:${MYSQL_ROOT_PASSWORD}@(tcp(${DB_HOST}:${DB_PORT}))/
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_HOST}:${DB_PORT}/${POSTGRES_DB}?sslmode=disable
 
   prometheus:
     image: prom/prometheus:latest
@@ -61,7 +61,7 @@ services:
       - "9090"
     depends_on:
       - backend
-      - mysql-exporter
+      - postgres-exporter
 
   grafana:
     image: grafana/grafana-oss:latest
