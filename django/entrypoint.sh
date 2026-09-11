@@ -8,7 +8,7 @@ echo "🛠️ INICIANDO DATABASE MIGRATIONS..."
 echo "$SEPARATOR"
 
 # Executa o comando e captura o resultado
-if python manage.py smart_migrate; then
+if python manage.py migrate; then
     echo "✅ SUCESSO: Migrations aplicadas perfeitamente."
     echo "$SEPARATOR"
 else
