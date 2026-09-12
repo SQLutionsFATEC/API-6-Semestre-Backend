@@ -1,0 +1,15 @@
+[run]
+source = .
+relative_files = True
+omit =
+    */migrations/*
+    */from_scratch/*
+    */tests/*
+    */tests_unit/*
+    manage.py
+    */settings.py
+    */asgi.py
+    */wsgi.py
+
+[xml]
+output = coverage.xml

@@ -10,7 +10,10 @@ class Documento(models.Model):
     tipo_arquivo = models.CharField(max_length=50, help_text="Ex: pdf, docx, png")
     nome = models.CharField(max_length=255, help_text="Nome do documento")
     setor = models.CharField(max_length=100, help_text="Setor responsável pelo documento")
-    data_atualizacao = models.DateTimeField(auto_now=True, help_text="Atualizado automaticamente no salvamento")
+    data_atualizacao = models.DateTimeField(
+        auto_now=True,
+        help_text="Atualizado automaticamente no salvamento"
+    )
     nivel = models.CharField(max_length=50, help_text="Nível de acesso ou sigilo do documento")
     data = models.FileField(upload_to='documentos/', help_text="Arquivo do documento")
 
