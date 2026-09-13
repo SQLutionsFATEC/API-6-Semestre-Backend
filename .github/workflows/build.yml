@@ -1,21 +1,69 @@
 name: Build
+
 on:
-  schedule:
-    - cron: '0 3 * * 0'
   push:
-    branches:
-      - master
+    branches: ["main", "develop-1", "develop-2", "develop-3"]
   pull_request:
     types: [opened, synchronize, reopened]
+  schedule:
+    - cron: '0 2 * * 6'
+
 jobs:
-  sonarqube:
-    name: SonarQube
+  sonarcloud:
+    name: SonarCloud Scan
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 0  
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
+
+    services:
+      postgres:
+        image: postgres:16
         env:
+          POSTGRES_DB: api_db
+          POSTGRES_USER: api_user
+          POSTGRES_PASSWORD: api_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U api_user -d api_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_NAME: api_db
+      DB_USER: api_user
+      DB_PASSWORD: api_password
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DJANGO_SECRET_KEY: test-secret-key-for-github-actions
+      ALLOWED_HOSTS: '*'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libpq-dev
+          python -m pip install --upgrade pip
+          pip install -r django/requirements.txt
+
+      - name: Run tests with coverage
+        run: |
+          cd django
+          pytest --cov=api --cov-report=term-missing --cov-report=xml
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v4
+        with:
+          projectBaseDir: .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
