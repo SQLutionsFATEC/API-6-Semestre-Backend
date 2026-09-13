@@ -35,7 +35,7 @@ jobs:
       DB_HOST: 127.0.0.1
       DB_PORT: 5432
       DJANGO_SECRET_KEY: test-secret-key-for-github-actions
-      ALLOWED_HOSTS: '*' 
+      ALLOWED_HOSTS: '*'
 
     steps:
       - name: Checkout repository
@@ -61,7 +61,7 @@ jobs:
           pytest --cov=api --cov-report=term-missing --cov-report=xml
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v2
+        uses: SonarSource/sonarqube-scan-action@v4
         with:
           projectBaseDir: .
         env:
