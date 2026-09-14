@@ -45,6 +45,59 @@ class DocumentoApiTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_lista_documentos_filtrando_nome_sem_diferenciar_maiusculas(self):
+        Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Relatório Financeiro.pdf',
+            setor='Financeiro',
+            nivel='Público',
+            data='documentos/relatorio.pdf',
+        )
+
+        response = self.client.get('/api/documentos/?nome=relat%c3%b3rio')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['pages'], 1)
+        self.assertEqual(len(response.json()['results']), 1)
+        self.assertEqual(response.json()['results'][0]['nome'], 'Relatório Financeiro.pdf')
+
+    def test_lista_documentos_pagina_com_no_maximo_dez_resultados(self):
+        for index in range(10):
+            Documento.objects.create(
+                tipo_arquivo='pdf',
+                nome=f'Documento {index}.pdf',
+                setor='TI',
+                nivel='Público',
+                data=f'documentos/documento-{index}.pdf',
+            )
+
+        primeira_pagina = self.client.get('/api/documentos/?page=1').json()
+        segunda_pagina = self.client.get('/api/documentos/?page=2').json()
+
+        self.assertEqual(primeira_pagina['pages'], 2)
+        self.assertEqual(len(primeira_pagina['results']), 10)
+        self.assertEqual(len(segunda_pagina['results']), 1)
+
+    def test_lista_documentos_mantem_busca_com_html_como_texto(self):
+        nome = '<script>alert(1)</script>'
+        Documento.objects.create(
+            tipo_arquivo='txt',
+            nome=nome,
+            setor='TI',
+            nivel='Público',
+            data='documentos/script.txt',
+        )
+
+        response = self.client.get('/api/documentos/', {'nome': '<script>'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['results'][0]['nome'], nome)
+
+    def test_lista_documentos_rejeita_pagina_invalida(self):
+        response = self.client.get('/api/documentos/?page=abc')
+
+        self.assertEqual(response.status_code, 400)
+
     # Testes para GET /api/documentos/{id}/etiquetas/
     def test_retorna_etiquetas_do_documento_com_sucesso(self):
         self.documento.etiquetas.add(self.etiqueta)
