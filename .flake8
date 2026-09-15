@@ -1,0 +1,16 @@
+[flake8]
+max-line-length = 100
+extend-ignore = E203,W503
+exclude =
+    .git,
+    .venv,
+    .venv-ci,
+    venv,
+    __pycache__,
+    .pytest_cache,
+    htmlcov,
+    django/api/migrations,
+    django/api/from_scratch,
+    ignore
+per-file-ignores =
+    */__init__.py:F401

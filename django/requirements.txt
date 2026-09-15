@@ -1,10 +1,10 @@
 asgiref==3.11.1
-djangorestframework>=3.15,<4.0
 Django==5.2.14
 django-cors-headers==4.9.0
 django-seed==0.3.1
 djangorestframework==3.17.1
 Faker==40.19.1
+flake8==7.3.0
 gunicorn==26.0.0
 psycopg[binary]==3.2.9
 numpy==2.4.6

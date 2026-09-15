@@ -1,0 +1,79 @@
+name: SonarCloud Analysis
+
+on:
+  push:
+    branches: [ "main", "develop-1", "develop-2", "develop-3" ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: '0 2 * * 6' 
+
+jobs:
+  sonarcloud:
+    name: SonarCloud Scan
+    runs-on: ubuntu-latest
+    
+    # 1. Cria um banco de dados temporário no GitHub para os testes rodarem
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: api_db
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: senha_root_padrao
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U root -d api_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --- 1. SETUP PYTHON ---
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # --- 2. INSTALL DEPENDENCIES ---
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config default-libmysqlclient-dev build-essential
+          python -m pip install --upgrade pip
+          # Installs standard Django deps, plus coverage and ETL deps (pandas)
+          pip install -r django/requirements.txt
+          python -m pip install coverage pandas pytest pytest-django
+
+      # --- 3. RUN TESTS & GENERATE XML ---
+      - name: Run tests and generate coverage report
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          POSTGRES_DB: api_db
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: senha_root_padrao
+          DJANGO_SECRET_KEY: 'test-secret-key-for-github-actions'
+        run: |
+          # Testa os dois apps (api e etl) e gera o report combinado
+          coverage erase
+          coverage run -m pytest
+          coverage report -m
+          coverage xml -o coverage.xml
+          
+          # Ajusta os caminhos no XML para o Sonar entender
+        # sed -i "s|<source>.*</source>|<source>$GITHUB_WORKSPACE</source>|g" coverage.xml
+        # sed -i 's/filename="/filename="django\//g' coverage.xml
+
+      # --- 4. RUN SONARCLOUD ---
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
