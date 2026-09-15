@@ -68,8 +68,8 @@ jobs:
           coverage xml -o coverage.xml
           
           # Ajusta os caminhos no XML para o Sonar entender
-          sed -i "s|<source>.*</source>|<source>$GITHUB_WORKSPACE</source>|g" coverage.xml
-          sed -i 's/filename="/filename="django\//g' coverage.xml
+        # sed -i "s|<source>.*</source>|<source>$GITHUB_WORKSPACE</source>|g" coverage.xml
+        # sed -i 's/filename="/filename="django\//g' coverage.xml
 
       # --- 4. RUN SONARCLOUD ---
       - name: SonarCloud Scan
