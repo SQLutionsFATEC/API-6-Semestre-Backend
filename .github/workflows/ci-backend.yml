@@ -57,8 +57,8 @@ jobs:
 
       # TODO: habilitar esta etapa quando os testes unitários forem implementados.
       # O caminho e o comando devem ser revistos conforme a estrutura final da suíte.
-      # - name: Executar testes unitários
-      #   run: python -m pytest api/tests_unit/ -v
+      - name: Executar testes unitários
+        run: python -m pytest api/tests/ -v
 
   secondary-build:
     name: "Estágio 2: integração e SonarCloud"
@@ -101,6 +101,24 @@ jobs:
       # - name: Ajustar caminho do relatório de cobertura
       #   shell: bash
       #   run: sed -i "s|<source>.*</source>|<source>${GITHUB_WORKSPACE}/django</source>|g" django/coverage.xml
+      - name: Run tests and generate coverage report
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          MYSQL_DATABASE: api_db
+          POSTGRES_USER: sqlutions
+          POSTGRES_PASSWORD: senha_root_padrao
+          DJANGO_SECRET_KEY: 'test-secret-key-for-github-actions'
+        run: |
+          cd django
+          # Testa os dois apps (api e etl) e gera o report combinado
+          coverage run --source='api' -m pytest
+          coverage report -m
+          coverage xml -o coverage.xml
+          
+          # Ajusta os caminhos no XML para o Sonar entender
+          sed -i "s|<source>.*</source>|<source>$GITHUB_WORKSPACE</source>|g" coverage.xml
+          sed -i 's/filename="/filename="django\//g' coverage.xml
 
       - name: Executar análise no SonarCloud
         if: env.SONAR_TOKEN != ''
