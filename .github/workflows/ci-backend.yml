@@ -16,7 +16,7 @@ jobs:
     # 1. Cria um banco de dados temporário no GitHub para os testes rodarem
     services:
       postgres:
-        image: postgres:13
+        image: postgres:15
         env:
           POSTGRES_DB: api_db
           POSTGRES_USER: root
