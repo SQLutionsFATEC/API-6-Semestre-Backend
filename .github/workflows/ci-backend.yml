@@ -61,7 +61,6 @@ jobs:
           POSTGRES_PASSWORD: senha_root_padrao
           DJANGO_SECRET_KEY: 'test-secret-key-for-github-actions'
         run: |
-          cd django
           # Testa os dois apps (api e etl) e gera o report combinado
           coverage erase
           coverage run -m pytest

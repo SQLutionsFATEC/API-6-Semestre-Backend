@@ -1,5 +1,5 @@
 [run]
-source = .
+source = django
 relative_files = True
 omit =
     */migrations/*
@@ -12,4 +12,4 @@ omit =
     */wsgi.py
 
 [xml]
-output = coverage.xml
+output = django/coverage.xml
