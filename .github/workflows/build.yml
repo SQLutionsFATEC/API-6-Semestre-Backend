@@ -1,21 +1,42 @@
-name: Build
+name: CI Backend Build
+
 on:
-  schedule:
-    - cron: '0 3 * * 0'
-  push:
-    branches:
-      - master
   pull_request:
+    branches:
+      - main
+      - develop-1
+      - develop-2
+      - develop-3
     types: [opened, synchronize, reopened]
+
 jobs:
-  sonarqube:
-    name: SonarQube
+  commit-build:
+    name: "Estágio 1: Commit Build (Rápido)"
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: django
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
         with:
-          fetch-depth: 0  
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: django/requirements.txt
+
+      - name: Instalar dependências do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config build-essential
+
+      - name: Instalar dependências Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 pytest pytest-django
+
+      - name: Análise Estática (Linter)
+        run: flake8 . --config=../.flake8
