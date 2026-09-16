@@ -75,3 +75,4 @@ Todo o código-fonte executável desta Prova de Conceito, contendo os scripts Py
 
 🔗 Acessar código-fonte e instruções de execução:
 Repositório: Vectorial Database - POC
+https://github.com/Gabriecarvalho/vectorial-database/tree/main
