@@ -19,6 +19,15 @@ if not shutil.which("tesseract"):
             pytesseract.pytesseract.tesseract_cmd = str(c)
             break
 
+# Suprime avisos do motor C do MuPDF no console (ex: 'format error: No default Layer config'),
+# que acontecem quando o PyMuPDF tenta ler PDFs escaneados ou com camadas fora do padrão,
+# garantindo que o console não seja poluído já que o OCR/fallback trata esses casos.
+try:
+    pymupdf.TOOLS.mupdf_display_errors(False)
+    pymupdf.TOOLS.mupdf_display_warnings(False)
+except Exception:
+    pass
+
 # ==============================================================================
 # IMPORTANTE!!!
 # POR QUE ESTE ARQUIVO É NECESSÁRIO SE O MODELO JÁ FOI TREINADO?
