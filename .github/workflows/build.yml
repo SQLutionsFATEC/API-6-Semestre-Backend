@@ -3,10 +3,12 @@ name: Backend - Integration Tests and Sonar
 on:
   push:
     branches:
+      - main
       - develop-1
 
   pull_request:
     branches:
+      - main
       - develop-1
     types:
       - opened
