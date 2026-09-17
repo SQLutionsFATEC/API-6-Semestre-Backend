@@ -1,21 +1,53 @@
-name: Build
+name: Backend - Integration Tests and Sonar
+
 on:
-  schedule:
-    - cron: '0 3 * * 0'
   push:
     branches:
-      - master
+      - develop-1
+
   pull_request:
-    types: [opened, synchronize, reopened]
+    branches:
+      - develop-1
+    types:
+      - opened
+      - synchronize
+      - reopened
+
 jobs:
-  sonarqube:
-    name: SonarQube
+  integration-tests:
+    name: Integration Tests
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          fetch-depth: 0  
+          fetch-depth: 0
+
+      - name: Build and run integration tests
+        run: |
+          docker compose \
+            -f deploy/docker-compose.test.yml \
+            up \
+            --build \
+            --abort-on-container-exit \
+            --exit-code-from backend-test
+
+      - name: Show generated test files
+        if: always()
+        run: |
+          echo "Generated files:"
+          ls -la django/ || true
+
+      - name: Stop integration environment
+        if: always()
+        run: |
+          docker compose \
+            -f deploy/docker-compose.test.yml \
+            down -v \
+            --remove-orphans
+
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
+        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
