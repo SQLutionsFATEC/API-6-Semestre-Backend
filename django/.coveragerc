@@ -1,0 +1,13 @@
+[run]
+relative_files = True
+source = api
+omit =
+    */tests/*
+    */tests_unit/*
+    */migrations/*
+    */asgi.py
+    */wsgi.py
+
+[report]
+show_missing = True
+skip_empty = True
