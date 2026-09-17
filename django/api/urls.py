@@ -19,6 +19,7 @@ from django.urls import include, path
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework.routers import DefaultRouter
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from api.views.documento_api import DocumentoViewSet
 from api.views.etiqueta_api import EtiquetaViewSet
@@ -28,6 +29,8 @@ router.register(r'documentos', DocumentoViewSet, basename='documento')
 router.register(r'etiquetas', EtiquetaViewSet, basename='etiqueta')
 
 urlpatterns = [
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/', include(router.urls)),
 ]
 
