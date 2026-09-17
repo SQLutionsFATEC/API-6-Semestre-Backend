@@ -41,7 +41,6 @@ class DocumentoViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-
     # ========================================================
     # GET /api/documentos/?nome={nome}&page={numero da pagina}
     # ========================================================
