@@ -41,29 +41,16 @@ class MLService:
 
     @classmethod
     def _carregar_modelo(cls):
-        """Carrega o arquivo modelo_categorizacao_etiqueta.joblib na memória."""
+        """Carrega o modelo de categorização em memória."""
         if cls._artefato is None:
-            caminhos_possiveis = [
-                Path("/docs/ml_etiqueta/artifacts/modelo_categorizacao_etiqueta.joblib"),
-                Path(__file__).resolve().parent.parent.parent.parent / "docs" / "ml_etiqueta" / "artifacts" / "modelo_categorizacao_etiqueta.joblib",
-            ]
-            try:
-                caminhos_possiveis.append(settings.BASE_DIR.parent / "docs" / "ml_etiqueta" / "artifacts" / "modelo_categorizacao_etiqueta.joblib")
-            except Exception:
-                pass
-
-            caminho_encontrado = None
-            for p in caminhos_possiveis:
-                if p.exists():
-                    caminho_encontrado = p
-                    break
-
-            if not caminho_encontrado:
+            caminho_modelo = Path(settings.ML_MODEL_PATH)
+            if not caminho_modelo.exists():
                 raise FileNotFoundError(
-                    f"Modelo de ML não encontrado em nenhum dos caminhos previstos. Tentativas: {[str(c) for c in caminhos_possiveis]}"
+                    f"Modelo de ML não encontrado em: {caminho_modelo}"
                 )
 
-            cls._artefato = joblib.load(caminho_encontrado)
+            cls._artefato = joblib.load(caminho_modelo)
+
         return cls._artefato
 
     @staticmethod

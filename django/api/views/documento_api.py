@@ -24,10 +24,11 @@ class DocumentoViewSet(ModelViewSet):
     # Executado automaticamente no POST /api/documentos/
     # ========================================================
     def perform_create(self, serializer):
-        # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
-        documento = serializer.save()
         try:
-            # 2. Executa a IA (se o caminho for inválido, o próprio MLService retorna NAO_CLASSIFICADO)
+            # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
+            documento = serializer.save()
+
+            # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
             caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
             tag_predita = MLService.classificar_documento(caminho_pdf)
 
@@ -35,9 +36,11 @@ class DocumentoViewSet(ModelViewSet):
             etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
             documento.etiquetas.add(etiqueta)
         except Exception as e:
-            print(f"[DocumentoViewSet] Aviso: Falha ao classificar o documento #{documento.id_documento}: {e}")
-            etiqueta, _ = Etiqueta.objects.get_or_create(nome="NAO_CLASSIFICADO")
-            documento.etiquetas.add(etiqueta)
+            return Response(
+                {"erro": f"Erro ao processar o upload do documento: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&page={numero da pagina}
