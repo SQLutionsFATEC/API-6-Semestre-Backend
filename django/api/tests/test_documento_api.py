@@ -28,6 +28,7 @@ class DocumentoApiTest(TestCase):
             'data_atualizacao': self.documento.data_atualizacao.isoformat().replace('+00:00', 'Z'),
             'nivel': 'Público',
             'data': 'http://testserver/media/documentos/manual.pdf',
+            'etiquetas': [],
         })
 
     def test_retorna_404_para_documento_inexistente(self):
@@ -81,11 +82,11 @@ class DocumentoApiTest(TestCase):
     def test_lista_documentos_mantem_busca_com_html_como_texto(self):
         nome = '<script>alert(1)</script>'
         Documento.objects.create(
-            tipo_arquivo='txt',
+            tipo_arquivo='pdf',
             nome=nome,
             setor='TI',
             nivel='Público',
-            data='documentos/script.txt',
+            data='documentos/script.pdf',
         )
 
         response = self.client.get('/api/documentos/', {'nome': '<script>'})
@@ -156,3 +157,17 @@ class DocumentoApiTest(TestCase):
         
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()['erro'], 'Etiqueta não encontrada.')
+
+    def test_rejeita_upload_de_arquivo_que_nao_seja_pdf(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        arquivo_png = SimpleUploadedFile("imagem.png", b"conteudo_fake", content_type="image/png")
+        payload = {
+            'tipo_arquivo': 'pdf',
+            'nome': 'Imagem Teste',
+            'setor': 'TI',
+            'nivel': 'Público',
+            'data': arquivo_png,
+        }
+        response = self.client.post('/api/documentos/', data=payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('data', response.json())
