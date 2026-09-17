@@ -13,13 +13,19 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copia e instala as dependências puramente no venv
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y build-essential \
-    && pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # ==========================================
 # EXECUÇÃO
 # ==========================================
 FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-por \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -36,8 +42,8 @@ COPY . .
 # Garante que as pastas existam antes do Nginx tentar acessá-las
 RUN mkdir -p /app/staticfiles /app/media
 
-# Dá permissão de execução ao entrypoint
-RUN chmod +x entrypoint.sh
+# Remove quebras de linha do Windows (\r) e dá permissão de execução ao entrypoint
+RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
 
 EXPOSE 8000
 
