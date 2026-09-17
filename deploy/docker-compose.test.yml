@@ -1,49 +1,75 @@
-# docker-compose.test.yml
-# Ambiente isolado de testes de integração — DevOps SCRUM-88
-# Uso:
-#   docker compose -f deploy/docker-compose.test.yml --env-file deploy/.env up --build --abort-on-container-exit
-#   docker compose -f deploy/docker-compose.test.yml down -v
-
 services:
   mysql-test:
     build:
       context: ./mysql
-    container_name: mysql-test-db
+
+    container_name: sqlutions-mysql-integration-test
+
     environment:
-      - MYSQL_USER=${MYSQL_USER}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - MYSQL_DATABASE=${MYSQL_DATABASE}
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: api_test_db
+      MYSQL_USER: sqlutions_test
+      MYSQL_PASSWORD: sqlutions_test_password
+      MYSQL_ROOT_PASSWORD: sqlutions_test_root_password
+      MYSQL_ROOT_HOST: "%"
+
     ports:
-      - "3307:3306"   # Porta diferente da 3306 (dev) — evita conflito
+      - "3307:3306"
+
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "127.0.0.1",
+          "-u",
+          "root",
+          "-psqlutions_test_root_password"
+        ]
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
       start_period: 10s
+
+    restart: "no"
 
   backend-test:
     build:
       context: ../django
       dockerfile: ../deploy/backend/Dockerfile
-    container_name: django-test-app
-    env_file:
-      - .env
+
+    container_name: sqlutions-backend-integration-test
+
     environment:
-      - DB_NAME=${MYSQL_DATABASE}
-      - DB_USER=${MYSQL_USER}
-      - DB_PASSWORD=${MYSQL_PASSWORD}
-      - DB_HOST=mysql-test
-      - DB_PORT=3306
-      - RUN_SEED=false
+      MYSQL_DATABASE: api_test_db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: sqlutions_test_root_password
+
+      DB_HOST: mysql-test
+      DB_PORT: 3306
+
+      DJANGO_SECRET_KEY: integration-test-secret-key
+      RUN_SEED: "false"
+      ALLOWED_HOSTS: "*"
+
     depends_on:
       mysql-test:
         condition: service_healthy
+
     volumes:
       - ../django:/app
-    command: >
-      sh -c "
-        python manage.py smart_migrate &&
-        python -m pytest api/tests/ etl/tests/test_extraction.py -v --cov=api --cov=etl --cov-report=term-missing --cov-report=xml
-      "
+
+    command:
+      - python
+      - -m
+      - pytest
+      - api/tests/
+      - -v
+      - --cov=api
+      - --cov-config=.coveragerc
+      - --cov-report=term-missing
+      - --cov-report=xml:coverage.xml
+      - --junitxml=test-results.xml
+
+    restart: "no"
