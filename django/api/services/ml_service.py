@@ -35,6 +35,7 @@ if not shutil.which("tesseract"):
 # 5. Vetoriza o texto limpo e chama a predição para definir a etiqueta do documento.
 # ==============================================================================
 
+
 class MLService:
     _artefato = None
 
