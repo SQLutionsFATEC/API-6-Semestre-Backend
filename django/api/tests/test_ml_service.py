@@ -59,3 +59,49 @@ class MLServiceTest(TestCase):
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
+
+    def test_classificar_documento_com_texto_curto_retorna_nao_classificado(self):
+        doc = pymupdf.open()
+        pagina = doc.new_page()
+        pagina.insert_text((50, 50), "Texto curto")
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
+        doc.save(tmp_path)
+        doc.close()
+        try:
+            resultado = MLService.classificar_documento(tmp_path)
+            self.assertEqual(resultado, "NAO_CLASSIFICADO")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_classificar_documento_sem_termos_reconhecidos_retorna_nao_classificado(self):
+        doc = pymupdf.open()
+        pagina = doc.new_page()
+        pagina.insert_text((50, 50), "zzxxyyqqwwkkjj " * 20)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
+        doc.save(tmp_path)
+        doc.close()
+        try:
+            resultado = MLService.classificar_documento(tmp_path)
+            self.assertEqual(resultado, "NAO_CLASSIFICADO")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_classificar_documento_limite_confianca_alto_retorna_nao_classificado(self):
+        doc = pymupdf.open()
+        pagina = doc.new_page()
+        pagina.insert_text((50, 50), "Especificacao tecnica militar NAVSEA " * 10)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
+        doc.save(tmp_path)
+        doc.close()
+        try:
+            resultado = MLService.classificar_documento(tmp_path, limite_confianca=9999.0)
+            self.assertEqual(resultado, "NAO_CLASSIFICADO")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+

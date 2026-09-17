@@ -171,3 +171,29 @@ class DocumentoApiTest(TestCase):
         response = self.client.post('/api/documentos/', data=payload)
         self.assertEqual(response.status_code, 400)
         self.assertIn('data', response.json())
+
+    def test_criar_documento_com_sucesso_via_post(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        arquivo_pdf = SimpleUploadedFile("teste.pdf", b"%PDF-1.4 Fake PDF Content", content_type="application/pdf")
+        payload = {
+            'tipo_arquivo': 'pdf',
+            'nome': 'Relatorio Teste.pdf',
+            'setor': 'TI',
+            'nivel': 'Público',
+            'data': arquivo_pdf,
+        }
+        response = self.client.post('/api/documentos/', data=payload)
+        self.assertEqual(response.status_code, 201)
+        self.assertIn('id_documento', response.json())
+        self.assertTrue(Etiqueta.objects.filter(nome="NAO_CLASSIFICADO").exists())
+
+    def test_lista_documentos_rejeita_pagina_menor_que_um(self):
+        response = self.client.get('/api/documentos/?page=0')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['erro'], 'page deve ser um número inteiro positivo.')
+
+    def test_lista_documentos_retorna_404_para_pagina_inexistente(self):
+        response = self.client.get('/api/documentos/?page=9999')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('detail', response.json())
+
