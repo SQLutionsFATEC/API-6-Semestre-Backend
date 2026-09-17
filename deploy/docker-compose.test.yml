@@ -1,31 +1,23 @@
 services:
-  mysql-test:
+  postgres-test:
     build:
-      context: ./mysql
+      context: ./postgres
 
-    container_name: sqlutions-mysql-integration-test
+    container_name: sqlutions-postgres-integration-test
 
     environment:
-      MYSQL_DATABASE: api_test_db
-      MYSQL_USER: sqlutions_test
-      MYSQL_PASSWORD: sqlutions_test_password
-      MYSQL_ROOT_PASSWORD: sqlutions_test_root_password
-      MYSQL_ROOT_HOST: "%"
+      POSTGRES_DB: api_test_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: integration_test_password
 
     ports:
-      - "3307:3306"
+      - "5433:5432"
 
     healthcheck:
       test:
         [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "127.0.0.1",
-          "-u",
-          "root",
-          "-psqlutions_test_root_password"
+          "CMD-SHELL",
+          "pg_isready -U postgres -d api_test_db"
         ]
       interval: 5s
       timeout: 5s
@@ -42,19 +34,18 @@ services:
     container_name: sqlutions-backend-integration-test
 
     environment:
-      MYSQL_DATABASE: api_test_db
-      MYSQL_USER: root
-      MYSQL_PASSWORD: sqlutions_test_root_password
-
-      DB_HOST: mysql-test
-      DB_PORT: 3306
+      DB_NAME: api_test_db
+      DB_USER: postgres
+      DB_PASSWORD: integration_test_password
+      DB_HOST: postgres-test
+      DB_PORT: 5432
 
       DJANGO_SECRET_KEY: integration-test-secret-key
       RUN_SEED: "false"
       ALLOWED_HOSTS: "*"
 
     depends_on:
-      mysql-test:
+      postgres-test:
         condition: service_healthy
 
     volumes:

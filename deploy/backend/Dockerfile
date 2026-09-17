@@ -13,7 +13,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copia e instala as dependências puramente no venv
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y pkg-config default-libmysqlclient-dev build-essential \
+RUN apt-get update && apt-get install -y build-essential \
     && pip install --upgrade pip && pip install -r requirements.txt
 
 # ==========================================
@@ -28,9 +28,6 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Ativa o venv na imagem final
 ENV PATH="/opt/venv/bin:$PATH"
-
-# Instala a biblioteca de runtime do MySQL
-RUN apt-get update && apt-get install -y default-libmysqlclient-dev && rm -rf /var/lib/apt/lists/*
 
 # Copia o código da sua aplicação
 COPY . .
