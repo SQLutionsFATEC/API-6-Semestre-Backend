@@ -18,6 +18,14 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / 'deploy' / '.env')
 
+ML_MODEL_PATH = Path(
+    os.getenv(
+        'ML_MODEL_PATH',
+        BASE_DIR.parent / 'docs' / 'ml_etiqueta' / 'artifacts' / 'modelo_categorizacao_etiqueta.joblib'
+    )
+)
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -36,7 +44,6 @@ ALLOWED_HOSTS = [
 INSTALLED_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
-    'django_prometheus',
     'django_seed',
     'corsheaders',
     'rest_framework',
@@ -44,13 +51,11 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'django_prometheus.middleware.PrometheusBeforeMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django_prometheus.middleware.PrometheusAfterMiddleware',
 ]
 
 ROOT_URLCONF = 'api.urls'

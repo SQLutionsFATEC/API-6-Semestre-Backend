@@ -8,6 +8,7 @@ from api.models import Documento
 from api.models import Etiqueta
 from api.serializers import DocumentoSerializer
 from api.serializers import EtiquetaSerializer
+from api.services.ml_service import MLService
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
@@ -18,6 +19,27 @@ class DocumentoViewSet(ModelViewSet):
     serializer_class = DocumentoSerializer
 
     lookup_field = "id_documento"
+
+    # ========================================================
+    # Executado automaticamente no POST /api/documentos/
+    # ========================================================
+    def perform_create(self, serializer):
+        try:
+            # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
+            documento = serializer.save()
+
+            # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
+            caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
+            tag_predita = MLService.classificar_documento(caminho_pdf)
+
+            # 3. Obtém ou cria a etiqueta e vincula ao documento
+            etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
+            documento.etiquetas.add(etiqueta)
+        except Exception as e:
+            return Response(
+                {"erro": f"Erro ao processar o upload do documento: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&page={numero da pagina}
