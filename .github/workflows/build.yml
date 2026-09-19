@@ -13,9 +13,11 @@ jobs:
   commit-build:
     name: "Estágio 1: Commit Build (Rápido)"
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: django
+
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
