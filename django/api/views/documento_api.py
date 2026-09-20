@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 
 from api.models import Documento
@@ -17,8 +18,17 @@ from django.core.paginator import EmptyPage
 class DocumentoViewSet(ModelViewSet):
     queryset = Documento.objects.all()
     serializer_class = DocumentoSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     lookup_field = "id_documento"
+
+    @extend_schema(
+        request=DocumentoSerializer,
+        description="Cria um documento. O campo data deve ser enviado como arquivo.",
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&page={numero da pagina}
