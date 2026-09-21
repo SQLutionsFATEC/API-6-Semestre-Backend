@@ -4,6 +4,7 @@ Django==5.2.14
 django-cors-headers==4.9.0
 django-seed==0.3.1
 djangorestframework==3.17.1
+drf-spectacular>=0.28,<1.0
 Faker==40.19.1
 gunicorn==26.0.0
 psycopg[binary]==3.2.9

@@ -3,6 +3,8 @@ from rest_framework.decorators import action
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 
 from api.models import Documento
 from api.models import Etiqueta
@@ -17,8 +19,17 @@ from django.core.paginator import EmptyPage
 class DocumentoViewSet(ModelViewSet):
     queryset = Documento.objects.all()
     serializer_class = DocumentoSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     lookup_field = "id_documento"
+
+    @extend_schema(
+        request=DocumentoSerializer,
+        description="Cria um documento. O campo data deve ser enviado como arquivo.",
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
 
     # ========================================================
     # Executado automaticamente no POST /api/documentos/
@@ -44,6 +55,30 @@ class DocumentoViewSet(ModelViewSet):
     # ========================================================
     # GET /api/documentos/?nome={nome}&page={numero da pagina}
     # ========================================================
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="nome",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filtra documentos pelo nome, sem diferenciar maiúsculas e minúsculas.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Número da página. Cada página contém até 10 documentos.",
+                required=False,
+                default=1,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="Lista paginada de documentos."),
+            400: OpenApiResponse(description="Número de página inválido."),
+            404: OpenApiResponse(description="Página solicitada inexistente."),
+        },
+    )
     def list(self, request, *args, **kwargs):
         nome = request.query_params.get("nome")
         queryset = self.get_queryset().order_by("id_documento")
@@ -90,6 +125,13 @@ class DocumentoViewSet(ModelViewSet):
     # GET /api/documentos/{id_documento}/etiquetas/
     # ========================================================
     @action(methods=["GET"], url_path="etiquetas", detail=True)
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="Etiquetas vinculadas ao documento."),
+            400: OpenApiResponse(description="Identificador inválido."),
+            404: OpenApiResponse(description="Documento não encontrado."),
+        },
+    )
     def etiquetas(self, request, id_documento=None):
 
         if id_documento is None or not str(id_documento).isdigit():
@@ -114,6 +156,23 @@ class DocumentoViewSet(ModelViewSet):
     # POST /api/documentos/etiqueta/
     # ========================================================
     @action(methods=["POST"], url_path="etiqueta", detail=False)
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "object",
+                "required": ["id_documento", "id_etiqueta"],
+                "properties": {
+                    "id_documento": {"type": "integer", "example": 1},
+                    "id_etiqueta": {"type": "integer", "example": 1},
+                },
+            }
+        },
+        responses={
+            201: OpenApiResponse(description="Etiqueta vinculada com sucesso."),
+            400: OpenApiResponse(description="Campos obrigatórios ausentes."),
+            404: OpenApiResponse(description="Documento ou etiqueta não encontrado."),
+        },
+    )
     def vincular_etiqueta(self, request):
         id_documento = request.data.get("id_documento")
         id_etiqueta = request.data.get("id_etiqueta")
