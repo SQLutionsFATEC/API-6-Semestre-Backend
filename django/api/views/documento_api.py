@@ -14,6 +14,7 @@ from api.services.ml_service import MLService
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
+from django.db.models import Q 
 
 
 class DocumentoViewSet(ModelViewSet):
@@ -53,7 +54,7 @@ class DocumentoViewSet(ModelViewSet):
             )
 
     # ========================================================
-    # GET /api/documentos/?nome={nome}&page={numero da pagina}
+    # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&page={numero da pagina}
     # ========================================================
     @extend_schema(
         parameters=[
@@ -62,6 +63,13 @@ class DocumentoViewSet(ModelViewSet):
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description="Filtra documentos pelo nome, sem diferenciar maiúsculas e minúsculas.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="etiquetas",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filtra documentos pelas etiquetas (separadas por espaço).",
                 required=False,
             ),
             OpenApiParameter(
@@ -81,9 +89,22 @@ class DocumentoViewSet(ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         nome = request.query_params.get("nome")
+        etiquetas = request.query_params.get("etiquetas")
+
         queryset = self.get_queryset().order_by("id_documento")
+
+        search_query = Q()
+        
         if nome:
-            queryset = queryset.filter(nome__icontains=nome)
+            search_query |= Q(nome__icontains=nome)
+            
+        if etiquetas:
+            palavras_etiquetas = etiquetas.split()
+            for palavra in palavras_etiquetas:
+                search_query |= Q(etiquetas__nome__icontains=palavra)
+
+        if search_query:
+            queryset = queryset.filter(search_query).distinct()
 
         try:
             page_number = int(request.query_params.get("page", 1))
