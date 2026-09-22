@@ -14,7 +14,7 @@ from api.services.ml_service import MLService
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
-from django.db.models import Q 
+from django.db.models import Q
 
 
 class DocumentoViewSet(ModelViewSet):
