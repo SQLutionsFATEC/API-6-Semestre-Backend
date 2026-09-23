@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import shutil
 from pathlib import Path
 from typing import Iterable, List, Tuple
@@ -13,7 +14,12 @@ import pytesseract
 from PIL import Image
 
 
-if not shutil.which('tesseract'):
+OCR_MIN_CHARS = 50
+OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'por+eng')
+
+if os.getenv('TESSERACT_CMD'):
+    pytesseract.pytesseract.tesseract_cmd = os.getenv('TESSERACT_CMD')
+elif not shutil.which('tesseract'):
     for caminho_tesseract in (
         Path(r'C:\Program Files\Tesseract-OCR\tesseract.exe'),
         Path(r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe'),
@@ -49,12 +55,12 @@ class VectorService:
         try:
             pix = pagina.get_pixmap(dpi=dpi, alpha=False)
             imagem = Image.open(io.BytesIO(pix.tobytes('png')))
-            try:
-                return pytesseract.image_to_string(imagem, lang='por+eng')
-            except pytesseract.TesseractError:
-                return pytesseract.image_to_string(imagem, lang='eng')
-        except Exception:
-            return ''
+            return pytesseract.image_to_string(imagem, lang=OCR_LANGUAGE)
+        except pytesseract.TesseractNotFoundError as error:
+            raise RuntimeError(
+                'Tesseract não encontrado. Instale-o e coloque-o no PATH ou defina '
+                'a variável TESSERACT_CMD com o caminho de tesseract.exe.'
+            ) from error
 
     @staticmethod
     def _fallback_embedding(texto: str, dimensao: int = 768) -> List[float]:
@@ -70,17 +76,24 @@ class VectorService:
         return valores
 
     @classmethod
-    def gerar_embedding(cls, texto: str, dimensao: int = 768) -> List[float]:
+    def gerar_embedding(
+        cls,
+        texto: str,
+        dimensao: int = 768,
+        prefixo: str = 'search_document',
+    ) -> List[float]:
         texto = (texto or '').strip()
         if not texto:
             return [0.0 for _ in range(dimensao)]
 
         try:
             if ollama is None:
-                import ollama as ollama_lib
-                ollama = ollama_lib
+                raise RuntimeError('Ollama não está disponível.')
 
-            resposta = ollama.embeddings(model='nomic-embed-text', prompt=texto)
+            resposta = ollama.embeddings(
+                model='nomic-embed-text',
+                prompt=f'{prefixo}: {texto}',
+            )
             if hasattr(resposta, 'embedding'):
                 embedding = resposta.embedding
             elif isinstance(resposta, dict):
@@ -102,35 +115,24 @@ class VectorService:
 
     @staticmethod
     def _extrair_markdown_por_pagina(caminho_pdf: str) -> List[Tuple[int, str]]:
-        markdown_por_pagina = {}
         try:
-            if pymupdf4llm is not None:
-                resultado = pymupdf4llm.to_markdown(caminho_pdf, page_chunks=True)
-                if isinstance(resultado, dict):
-                    for indice, conteudo in enumerate(resultado.values(), start=1):
-                        if conteudo:
-                            markdown_por_pagina[indice] = str(conteudo)
-                elif isinstance(resultado, list):
-                    for item in resultado:
-                        if isinstance(item, dict):
-                            numero_pagina = item.get('page') or item.get('pagina') or 1
-                            conteudo = item.get('text') or item.get('conteudo') or ''
-                            markdown_por_pagina[int(numero_pagina)] = str(conteudo)
-                        else:
-                            markdown_por_pagina[1] = str(item)
+            if pymupdf4llm is None:
+                return []
 
-            pdf = pymupdf.open(caminho_pdf)
+            markdown_pages = pymupdf4llm.to_markdown(caminho_pdf, page_chunks=True)
             paginas: List[Tuple[int, str]] = []
-            for indice_pagina in range(len(pdf)):
-                numero_pagina = indice_pagina + 1
-                texto = markdown_por_pagina.get(numero_pagina, '')
-                if len(texto.strip()) < 80:
-                    texto = pdf[indice_pagina].get_text('text')
-                if len((texto or '').strip()) < 80:
-                    texto = VectorService._extrair_texto_ocr(pdf[indice_pagina])
-                if texto and texto.strip():
-                    paginas.append((numero_pagina, texto))
-            pdf.close()
+            with pymupdf.open(caminho_pdf) as pdf:
+                for indice_pagina, pagina_markdown in enumerate(markdown_pages):
+                    texto = pagina_markdown.get('text', '')
+                    if len(texto.strip()) < OCR_MIN_CHARS:
+                        texto_ocr = VectorService._extrair_texto_ocr(pdf[indice_pagina]).strip()
+                        if texto_ocr:
+                            texto = texto_ocr
+
+                    if texto and texto.strip():
+                        metadata = pagina_markdown.get('metadata', {})
+                        numero_pagina = metadata.get('page_number', indice_pagina + 1)
+                        paginas.append((numero_pagina, texto))
             return paginas
         except Exception:
             return []
@@ -151,27 +153,33 @@ class VectorService:
             return 0
 
         chunks_para_salvar: List[DocumentoChunk] = []
+        nome_arquivo = Path(caminho).name
+        splitter = (
+            MarkdownTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            if MarkdownTextSplitter is not None
+            else None
+        )
 
         for numero_pagina, markdown_texto in paginas:
             if not markdown_texto or not markdown_texto.strip():
                 continue
 
-            if MarkdownTextSplitter is None:
+            if splitter is None or Document is None:
                 chunks = [markdown_texto]
             else:
-                splitter = MarkdownTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-                if Document is None:
-                    chunks = [markdown_texto]
-                else:
-                    documento_langchain = Document(
-                        page_content=f'{documento.nome}\n\n{markdown_texto}',
-                        metadata={'page': numero_pagina, 'documento': documento.nome},
+                documentos = splitter.split_documents([
+                    Document(
+                        page_content=markdown_texto,
+                        metadata={'page_number': numero_pagina},
                     )
-                    chunks = splitter.split_documents([documento_langchain])
-                    chunks = [chunk.page_content for chunk in chunks]
+                ])
+                chunks = [chunk.page_content for chunk in documentos]
 
             for chunk in chunks:
-                texto_chunk = f'{documento.nome}\n\n{chunk}'.strip()
+                texto_chunk = f'Documento: {nome_arquivo}.\n{chunk}'.strip()
+                texto_chunk = texto_chunk.replace('\x00', '')
+                if not texto_chunk:
+                    continue
                 embedding = cls.gerar_embedding(texto_chunk)
                 chunks_para_salvar.append(
                     DocumentoChunk(
@@ -196,7 +204,7 @@ class VectorService:
         if not pergunta:
             return []
 
-        embedding = cls.gerar_embedding(pergunta)
+        embedding = cls.gerar_embedding(pergunta, prefixo='search_query')
         queryset = DocumentoChunk.objects.select_related('id_documento')
 
         if categoria:

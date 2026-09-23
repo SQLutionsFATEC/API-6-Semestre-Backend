@@ -50,13 +50,13 @@ class DocumentoChunk(models.Model):
         verbose_name = 'Documento Chunk'
         verbose_name_plural = 'Documentos Chunk'
         indexes = [
-            models.Index(fields=['id_documento', 'pagina'], name='idx_documento_chunk_documento_pagina'),
+            models.Index(fields=['id_documento', 'pagina'], name='idx_doc_chunk_pag'),
         ]
         if HAS_PGVECTOR and PGHnswIndex is not None:
             indexes.append(
                 PGHnswIndex(
+                    name='idx_doc_chunk_emb_hnsw',
                     fields=['embedding'],
-                    name='idx_documento_chunk_embedding_hnsw',
                     opclasses=['vector_cosine_ops'],
                 )
             )
