@@ -68,7 +68,7 @@ class DocumentoViewSet(ModelViewSet):
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&page={numero da pagina}
-    # Body opcional para busca semântica: {"contexto": "texto da busca"}
+    # Busca semântica opcional: ?contexto={texto da busca}
     # ========================================================
     @extend_schema(
         parameters=[
@@ -94,6 +94,13 @@ class DocumentoViewSet(ModelViewSet):
                 required=False,
                 default=1,
             ),
+            OpenApiParameter(
+                name="contexto",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Contexto usado para buscar os cinco trechos mais próximos.",
+                required=False,
+            ),
         ],
         responses={
             200: OpenApiResponse(description="Lista paginada de documentos."),
@@ -102,7 +109,7 @@ class DocumentoViewSet(ModelViewSet):
         },
     )
     def list(self, request, *args, **kwargs):
-        contexto = request.data.get("contexto")
+        contexto = request.query_params.get("contexto")
         if contexto is not None:
             if not isinstance(contexto, str) or not contexto.strip():
                 return Response(
@@ -110,10 +117,22 @@ class DocumentoViewSet(ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            resultados = VectorService.buscar_contexto(
+            chunks = VectorService.buscar_contexto(
                 contexto.strip().lower(),
                 limite=5,
             )
+            ids_documentos = [chunk['id_documento_id'] for chunk in chunks]
+            documentos_por_id = Documento.objects.in_bulk(ids_documentos)
+            documentos = []
+            documentos_vistos = set()
+            for id_documento in ids_documentos:
+                if id_documento in documentos_vistos:
+                    continue
+                if id_documento in documentos_por_id:
+                    documentos.append(documentos_por_id[id_documento])
+                    documentos_vistos.add(id_documento)
+
+            resultados = DocumentoSerializer(documentos, many=True).data
             return Response({"resultados": resultados}, status=status.HTTP_200_OK)
 
         nome = request.query_params.get("nome")
