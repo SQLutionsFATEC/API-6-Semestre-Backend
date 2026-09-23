@@ -16,7 +16,7 @@ jobs:
     # 1. Cria um banco de dados temporário no GitHub para os testes rodarem
     services:
       postgres:
-        image: postgres:15
+        image: pgvector/pgvector:pg15
         env:
           POSTGRES_DB: api_db
           POSTGRES_USER: api_user
@@ -48,6 +48,16 @@ jobs:
           # Installs standard Django deps, plus coverage and ETL deps (pandas)
           pip install -r django/requirements.txt
           pip install coverage pandas
+
+      - name: Enable pgvector extension
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGDATABASE: api_db
+          PGUSER: api_user
+          PGPASSWORD: senha_padrao
+        run: |
+          python -c "import os, psycopg; connection = psycopg.connect(); connection.execute('CREATE EXTENSION IF NOT EXISTS vector'); connection.commit(); connection.close()"
 
       # --- 3. RUN TESTS & GENERATE XML ---
       - name: Run tests and generate coverage report
