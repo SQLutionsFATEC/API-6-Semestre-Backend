@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Iterable, List, Tuple
@@ -11,10 +12,16 @@ from django.db import transaction
 import pymupdf
 import pytesseract
 from PIL import Image
+from langchain_core.documents import Document
+from langchain_text_splitters import MarkdownTextSplitter
+import pymupdf4llm
+import ollama
 
 
 OCR_MIN_CHARS = 50
 OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'por+eng')
+EMBEDDING_MODEL = 'nomic-embed-text-v2-moe'
+MAX_COSINE_DISTANCE = 0.62
 
 if os.getenv('TESSERACT_CMD'):
     pytesseract.pytesseract.tesseract_cmd = os.getenv('TESSERACT_CMD')
@@ -28,26 +35,14 @@ elif not shutil.which('tesseract'):
             break
 
 
-try:
-    from langchain_core.documents import Document
-    from langchain_text_splitters import MarkdownTextSplitter
-except Exception:  # pragma: no cover - dependência opcional em alguns ambientes
-    Document = None
-    MarkdownTextSplitter = None
-
-try:
-    import pymupdf4llm
-except Exception:  # pragma: no cover
-    pymupdf4llm = None
-
-try:
-    import ollama
-except Exception:  # pragma: no cover
-    ollama = None
-
-
 class VectorService:
     """Serviço responsável pela extração de contexto em Markdown, chunking e embeddings."""
+
+    @staticmethod
+    def _remover_marca_everyspec(texto: str) -> str:
+        marca = r'(?im)^\s*.*Downloaded\s+from.*everyspec\.com.*(?:\r?\n|$)'
+        texto = re.sub(marca, '', texto)
+        return re.sub(r'\n\s*\n\s*\n+', '\n\n', texto)
 
     @staticmethod
     def _extrair_texto_ocr(pagina, dpi: int = 150) -> str:
@@ -72,12 +67,9 @@ class VectorService:
         if not texto:
             return [0.0 for _ in range(dimensao)]
 
-        if ollama is None:
-            raise RuntimeError('Ollama não está disponível.')
-
         try:
             resposta = ollama.embeddings(
-                model='nomic-embed-text',
+                model=EMBEDDING_MODEL,
                 prompt=f'{prefixo}: {texto}',
             )
             if hasattr(resposta, 'embedding'):
@@ -99,18 +91,21 @@ class VectorService:
     @staticmethod
     def _extrair_markdown_por_pagina(caminho_pdf: str) -> List[Tuple[int, str]]:
         try:
-            if pymupdf4llm is None:
-                raise RuntimeError('pymupdf4llm não está instalado.')
-
             markdown_pages = pymupdf4llm.to_markdown(caminho_pdf, page_chunks=True)
             paginas: List[Tuple[int, str]] = []
             with pymupdf.open(caminho_pdf) as pdf:
                 for indice_pagina, pagina_markdown in enumerate(markdown_pages):
                     texto = pagina_markdown.get('text', '')
+                    if indice_pagina == 0:
+                        texto = VectorService._remover_marca_everyspec(texto)
                     if len(texto.strip()) < OCR_MIN_CHARS:
                         texto_ocr = VectorService._extrair_texto_ocr(pdf[indice_pagina]).strip()
                         if texto_ocr:
-                            texto = texto_ocr
+                            texto = (
+                                VectorService._remover_marca_everyspec(texto_ocr)
+                                if indice_pagina == 0
+                                else texto_ocr
+                            )
 
                     if texto and texto.strip():
                         metadata = pagina_markdown.get('metadata', {})
@@ -125,8 +120,8 @@ class VectorService:
         cls,
         documento,
         caminho_pdf: str | None = None,
-        chunk_size: int = 1400,
-        chunk_overlap: int = 150,
+        chunk_size: int = 700,
+        chunk_overlap: int = 100,
         batch_size: int = 50,
     ) -> int:
         if documento is None:
@@ -145,10 +140,9 @@ class VectorService:
         chunks_para_salvar: List[DocumentoChunk] = []
         total_salvo = 0
         nome_arquivo = Path(caminho).name
-        splitter = (
-            MarkdownTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            if MarkdownTextSplitter is not None
-            else None
+        splitter = MarkdownTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         )
 
         try:
@@ -156,20 +150,17 @@ class VectorService:
                 if not markdown_texto or not markdown_texto.strip():
                     continue
 
-                if splitter is None or Document is None:
-                    chunks = [markdown_texto]
-                else:
-                    documentos = splitter.split_documents([
-                        Document(
-                            page_content=markdown_texto,
-                            metadata={'page_number': numero_pagina},
-                        )
-                    ])
-                    chunks = [chunk.page_content for chunk in documentos]
+                documentos = splitter.split_documents([
+                    Document(
+                        page_content=markdown_texto,
+                        metadata={'page_number': numero_pagina},
+                    )
+                ])
+                chunks = [chunk.page_content for chunk in documentos]
 
                 for chunk in chunks:
                     texto_chunk = f'Documento: {nome_arquivo}.\n{chunk}'.strip()
-                    texto_chunk = texto_chunk.replace('\\x00', '')
+                    texto_chunk = texto_chunk.replace('\x00', '')
                     if not texto_chunk:
                         continue
                     chunks_para_salvar.append(
@@ -216,7 +207,10 @@ class VectorService:
         try:
             from pgvector.django import CosineDistance
 
-            queryset = queryset.order_by(CosineDistance('embedding', embedding))[:limite]
+            distancia = CosineDistance('embedding', embedding)
+            queryset = queryset.annotate(distancia=distancia).filter(
+                distancia__lt=MAX_COSINE_DISTANCE
+            ).order_by('distancia')[:limite]
         except Exception:
             queryset = queryset.order_by('id_chunk')[:limite]
 
