@@ -17,6 +17,7 @@ jobs:
     services:
       postgres:
         image: pgvector/pgvector:pg15
+        image: pgvector/pgvector:pg15
         env:
           POSTGRES_DB: api_db
           POSTGRES_USER: api_user
@@ -51,13 +52,9 @@ jobs:
 
       - name: Enable pgvector extension
         env:
-          PGHOST: localhost
-          PGPORT: 5432
-          PGDATABASE: api_db
-          PGUSER: api_user
           PGPASSWORD: senha_padrao
         run: |
-          python -c "import os, psycopg; connection = psycopg.connect(); connection.execute('CREATE EXTENSION IF NOT EXISTS vector'); connection.commit(); connection.close()"
+          psql -h localhost -U api_user -d api_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
       # --- 3. RUN TESTS & GENERATE XML ---
       - name: Run tests and generate coverage report
