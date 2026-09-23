@@ -159,3 +159,48 @@ class VectorServiceTest(TestCase):
 
         self.assertEqual(len(contexto), 1)
         self.assertEqual(contexto[0]['conteudo'], 'conteudo filtravel')
+
+    def test_buscar_contexto_retorna_chunks_do_mesmo_documento(self):
+        segundo_documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Segundo.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/segundo.pdf',
+        )
+        DocumentoChunk.objects.bulk_create([
+            DocumentoChunk(
+                id_documento=self.documento,
+                pagina=1,
+                conteudo='primeiro trecho',
+                embedding=[0.1] * 768,
+            ),
+            DocumentoChunk(
+                id_documento=self.documento,
+                pagina=2,
+                conteudo='segundo trecho do mesmo documento',
+                embedding=[0.2] * 768,
+            ),
+            DocumentoChunk(
+                id_documento=segundo_documento,
+                pagina=1,
+                conteudo='trecho de outro documento',
+                embedding=[0.3] * 768,
+            ),
+        ])
+        with patch.object(
+            VectorService,
+            'gerar_embedding',
+            return_value=[0.1] * 768,
+        ):
+            contexto = VectorService.buscar_contexto('pergunta')
+
+        self.assertEqual(len(contexto), 3)
+        self.assertEqual(
+            [resultado['id_documento_id'] for resultado in contexto],
+            [
+                self.documento.id_documento,
+                self.documento.id_documento,
+                segundo_documento.id_documento,
+            ],
+        )
