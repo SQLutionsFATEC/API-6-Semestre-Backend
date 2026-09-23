@@ -176,6 +176,7 @@ class DocumentoApiTest(TestCase):
     def test_criar_documento_com_sucesso_via_post(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
         import pymupdf
+        from unittest.mock import patch
 
         pdf = pymupdf.open()
         pdf.new_page()
@@ -192,7 +193,15 @@ class DocumentoApiTest(TestCase):
             'nivel': 'Público',
             'data': arquivo_pdf,
         }
-        response = self.client.post('/api/documentos/', data=payload)
+        with patch(
+            'api.views.documento_api.MLService.classificar_documento',
+            return_value='NAO_CLASSIFICADO',
+        ), patch(
+            'api.views.documento_api.VectorService.processar_documento',
+            return_value=0,
+        ):
+            response = self.client.post('/api/documentos/', data=payload)
+
         self.assertEqual(response.status_code, 201)
         self.assertIn('id_documento', response.json())
         self.assertTrue(Etiqueta.objects.filter(nome="NAO_CLASSIFICADO").exists())
