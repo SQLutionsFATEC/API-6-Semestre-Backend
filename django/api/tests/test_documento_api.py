@@ -245,29 +245,31 @@ class DocumentoApiTest(TestCase):
         self.assertIn('detail', response.json())
 
     def test_pesquisa_documentos_retorna_os_cinco_trechos_mais_proximos(self):
+        import json
         from unittest.mock import patch
 
-        resultados = [
-            {'id_chunk': indice, 'id_documento_id': self.documento.id_documento}
-            for indice in range(5)
-        ]
+        resultados = [{'id_chunk': indice} for indice in range(5)]
         with patch(
             'api.views.documento_api.VectorService.buscar_contexto',
             return_value=resultados,
         ) as buscar_contexto:
             response = self.client.get(
-                '/api/documentos/?contexto=%20%20Seguran%C3%A7a%20de%20Redes%20%20',
+                '/api/documentos/',
+                data=json.dumps({'contexto': '  Segurança de Redes  '}),
+                content_type='application/json',
             )
 
         self.assertEqual(response.status_code, 200)
-        resposta = response.json()['resultados']
-        self.assertEqual(len(resposta), 1)
-        self.assertEqual(resposta[0]['id_documento'], self.documento.id_documento)
+        self.assertEqual(response.json(), {'resultados': resultados})
         buscar_contexto.assert_called_once_with('segurança de redes', limite=5)
 
     def test_pesquisa_documentos_rejeita_contexto_vazio(self):
+        import json
+
         response = self.client.get(
-            '/api/documentos/?contexto=%20%20%20',
+            '/api/documentos/',
+            data=json.dumps({'contexto': '   '}),
+            content_type='application/json',
         )
 
         self.assertEqual(response.status_code, 400)
