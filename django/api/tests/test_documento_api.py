@@ -196,4 +196,41 @@ class DocumentoApiTest(TestCase):
         response = self.client.get('/api/documentos/?page=9999')
         self.assertEqual(response.status_code, 404)
         self.assertIn('detail', response.json())
-
+
+    def test_cria_documento_chunk_com_embedding_valido(self):
+        from api.models import DocumentoChunk
+
+        documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Manual Vetor.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/manual-vetor.pdf',
+        )
+
+        chunk = DocumentoChunk.objects.create(
+            id_documento=documento,
+            pagina=1,
+            conteudo='Conteúdo do documento para busca semântica.',
+            embedding=[0.1] * 768,
+        )
+
+        self.assertEqual(chunk.id_documento, documento)
+        self.assertEqual(chunk.pagina, 1)
+        self.assertEqual(len(chunk.embedding), 768)
+
+    def test_processar_documento_sem_arquivo_retorna_zero_chunks(self):
+        from api.services.vector_service import VectorService
+
+        documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Sem Arquivo.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/sem-arquivo.pdf',
+        )
+
+        total = VectorService.processar_documento(documento, caminho_pdf='caminho_inexistente.pdf')
+
+        self.assertEqual(total, 0)
+
