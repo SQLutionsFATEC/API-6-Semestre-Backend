@@ -53,7 +53,10 @@ class VectorServiceTest(TestCase):
                 'api.services.vector_service.pymupdf4llm.to_markdown',
                 return_value=[
                     {
-                        'text': 'Texto longo o suficiente para não acionar o OCR.',
+                        'text': (
+                            'Texto longo o suficiente para não acionar o OCR '
+                            'durante o teste.'
+                        ),
                         'metadata': {'page_number': 3},
                     }
                 ],
