@@ -8,6 +8,7 @@ drf-spectacular>=0.28,<1.0
 Faker==40.19.1
 gunicorn==26.0.0
 psycopg[binary]==3.2.9
+pgvector>=0.3.6
 numpy==2.4.6
 packaging==26.2
 pandas==3.0.3
