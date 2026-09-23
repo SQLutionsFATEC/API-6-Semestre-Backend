@@ -244,6 +244,37 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn('detail', response.json())
 
+    def test_pesquisa_documentos_retorna_os_cinco_trechos_mais_proximos(self):
+        import json
+        from unittest.mock import patch
+
+        resultados = [{'id_chunk': indice} for indice in range(5)]
+        with patch(
+            'api.views.documento_api.VectorService.buscar_contexto',
+            return_value=resultados,
+        ) as buscar_contexto:
+            response = self.client.get(
+                '/api/documentos/',
+                data=json.dumps({'contexto': '  Segurança de Redes  '}),
+                content_type='application/json',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'resultados': resultados})
+        buscar_contexto.assert_called_once_with('segurança de redes', limite=5)
+
+    def test_pesquisa_documentos_rejeita_contexto_vazio(self):
+        import json
+
+        response = self.client.get(
+            '/api/documentos/',
+            data=json.dumps({'contexto': '   '}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('contexto', response.json()['erro'])
+
     def test_cria_documento_chunk_com_embedding_valido(self):
         from api.models import DocumentoChunk
 
