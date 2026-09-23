@@ -16,6 +16,7 @@ class DocumentoApiTest(TestCase):
             nome='Importante'
         )
 
+
     def test_retorna_documento_pelo_id(self):
         response = self.client.get(f'/api/documentos/{self.documento.id_documento}/')
 
