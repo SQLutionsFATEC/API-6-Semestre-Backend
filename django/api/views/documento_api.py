@@ -28,11 +28,10 @@ class DocumentoViewSet(ModelViewSet):
     # ========================================================
     def perform_create(self, serializer):
         try:
-            # O transaction.atomic garante que, se qualquer coisa falhar aqui dentro, 
+            # O transaction.atomic garante que, se qualquer coisa falhar aqui dentro,
             # NADA será salvo no banco de dados (faz o rollback automático do serializer.save())
             with transaction.atomic():
-                
-            # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
+                # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
                 documento = serializer.save()
 
                 # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
@@ -50,7 +49,7 @@ class DocumentoViewSet(ModelViewSet):
             # Atenção: O banco de dados já fez o rollback neste ponto.
             # Se o arquivo físico no disco não for apagado automaticamente pelos seus models/signals,
             # você pode precisar apagar o arquivo físico aqui usando 'os.remove(caminho_pdf)'
-            
+
             raise serializers.ValidationError(
                 {"erro": f"Erro ao processar o upload do documento: {str(e)}"}
             )

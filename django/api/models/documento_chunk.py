@@ -10,10 +10,12 @@ except Exception:  # pragma: no cover - fallback para ambientes sem pgvector
     PGVectorField = None
     HAS_PGVECTOR = False
 
-    class PGVectorField(models.JSONField):
+    class FallbackVectorField(models.JSONField):
         def __init__(self, *args, dimensions=None, **kwargs):
             self.dimensions = dimensions
             super().__init__(*args, **kwargs)
+
+    PGVectorField = FallbackVectorField
 
 
 class VectorField(PGVectorField if HAS_PGVECTOR else models.JSONField):
