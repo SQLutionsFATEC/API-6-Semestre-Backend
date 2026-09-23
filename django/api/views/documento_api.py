@@ -68,7 +68,7 @@ class DocumentoViewSet(ModelViewSet):
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&page={numero da pagina}
-    # Busca semântica opcional: ?contexto={texto da busca}
+    # Body opcional para busca semântica: {"contexto": "texto da busca"}
     # ========================================================
     @extend_schema(
         parameters=[
@@ -109,7 +109,7 @@ class DocumentoViewSet(ModelViewSet):
         },
     )
     def list(self, request, *args, **kwargs):
-        contexto = request.query_params.get("contexto")
+        contexto = request.data.get("contexto")
         if contexto is not None:
             if not isinstance(contexto, str) or not contexto.strip():
                 return Response(
