@@ -68,6 +68,7 @@ class DocumentoViewSet(ModelViewSet):
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&page={numero da pagina}
+    # Body opcional para busca semântica: {"contexto": "texto da busca"}
     # ========================================================
     @extend_schema(
         parameters=[
@@ -101,6 +102,20 @@ class DocumentoViewSet(ModelViewSet):
         },
     )
     def list(self, request, *args, **kwargs):
+        contexto = request.data.get("contexto")
+        if contexto is not None:
+            if not isinstance(contexto, str) or not contexto.strip():
+                return Response(
+                    {"erro": "O campo contexto é obrigatório e não pode ser vazio."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            resultados = VectorService.buscar_contexto(
+                contexto.strip().lower(),
+                limite=5,
+            )
+            return Response({"resultados": resultados}, status=status.HTTP_200_OK)
+
         nome = request.query_params.get("nome")
         etiquetas = request.query_params.get("etiquetas")
 
