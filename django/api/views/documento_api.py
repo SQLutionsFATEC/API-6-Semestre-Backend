@@ -13,6 +13,8 @@ from api.services.vector_service import VectorService
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
+from django.db import transaction
+from rest_framework import serializers
 
 
 class DocumentoViewSet(ModelViewSet):
@@ -26,28 +28,31 @@ class DocumentoViewSet(ModelViewSet):
     # ========================================================
     def perform_create(self, serializer):
         try:
+            # O transaction.atomic garante que, se qualquer coisa falhar aqui dentro, 
+            # NADA será salvo no banco de dados (faz o rollback automático do serializer.save())
+            with transaction.atomic():
+                
             # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
-            documento = serializer.save()
+                documento = serializer.save()
 
-            # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
-            caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
-            tag_predita = MLService.classificar_documento(caminho_pdf)
+                # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
+                caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
+                tag_predita = MLService.classificar_documento(caminho_pdf)
 
-            # 3. Obtém ou cria a etiqueta e vincula ao documento
-            etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
-            documento.etiquetas.add(etiqueta)
+                # 3. Obtém ou cria a etiqueta e vincula ao documento
+                etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
+                documento.etiquetas.add(etiqueta)
+
+                # 4. Processa no VectorService (Se falhar aqui, o banco desfaz o passo 1 e 3)
+                VectorService.processar_documento(documento, caminho_pdf)
+
         except Exception as e:
-            return Response(
-                {"erro": f"Erro ao processar o upload do documento: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            VectorService.processar_documento(documento, caminho_pdf)
-        except Exception:
-            return Response(
-                {"erro": "Erro ao processar o documento."},
-                status=status.HTTP_400_BAD_REQUEST,
+            # Atenção: O banco de dados já fez o rollback neste ponto.
+            # Se o arquivo físico no disco não for apagado automaticamente pelos seus models/signals,
+            # você pode precisar apagar o arquivo físico aqui usando 'os.remove(caminho_pdf)'
+            
+            raise serializers.ValidationError(
+                {"erro": f"Erro ao processar o upload do documento: {str(e)}"}
             )
 
     # ========================================================
