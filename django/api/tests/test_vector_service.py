@@ -63,7 +63,10 @@ class VectorServiceTest(TestCase):
             ):
                 paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
 
-        self.assertEqual(paginas, [(3, 'Texto longo o suficiente para não acionar o OCR.')])
+        self.assertEqual(
+            paginas,
+            [(3, 'Texto longo o suficiente para não acionar o OCR durante o teste.')],
+        )
 
     def test_extrair_markdown_usa_ocr_para_texto_curto(self):
         import pymupdf
