@@ -206,6 +206,34 @@ class DocumentoApiTest(TestCase):
         self.assertIn('id_documento', response.json())
         self.assertTrue(Etiqueta.objects.filter(nome="NAO_CLASSIFICADO").exists())
 
+    def test_criar_documento_retorna_400_quando_processamento_falha(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from unittest.mock import patch
+
+        payload = {
+            'tipo_arquivo': 'pdf',
+            'nome': 'Relatorio Com Erro.pdf',
+            'setor': 'TI',
+            'nivel': 'Público',
+            'data': SimpleUploadedFile(
+                'erro.pdf',
+                b'%PDF-1.4',
+                content_type='application/pdf',
+            ),
+        }
+        with patch(
+            'api.views.documento_api.MLService.classificar_documento',
+            return_value='NAO_CLASSIFICADO',
+        ), patch(
+            'api.views.documento_api.VectorService.processar_documento',
+            side_effect=RuntimeError('falha no processamento'),
+        ):
+            response = self.client.post('/api/documentos/', data=payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('falha no processamento', response.json()['erro'])
+        self.assertFalse(Documento.objects.filter(nome='Relatorio Com Erro.pdf').exists())
+
     def test_lista_documentos_rejeita_pagina_menor_que_um(self):
         response = self.client.get('/api/documentos/?page=0')
         self.assertEqual(response.status_code, 400)
