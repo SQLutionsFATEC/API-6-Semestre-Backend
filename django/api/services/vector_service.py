@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import os
 import shutil
@@ -62,19 +61,6 @@ class VectorService:
                 'a variável TESSERACT_CMD com o caminho de tesseract.exe.'
             ) from error
 
-    @staticmethod
-    def _fallback_embedding(texto: str, dimensao: int = 768) -> List[float]:
-        if not texto:
-            return [0.0 for _ in range(dimensao)]
-
-        digest = hashlib.sha256(texto.encode('utf-8')).digest()
-        valores: List[float] = []
-        for indice in range(dimensao):
-            byte = digest[indice % len(digest)]
-            fator = ((byte + indice * 17) % 1000) / 1000.0
-            valores.append(round(fator, 6))
-        return valores
-
     @classmethod
     def gerar_embedding(
         cls,
@@ -86,10 +72,10 @@ class VectorService:
         if not texto:
             return [0.0 for _ in range(dimensao)]
 
-        try:
-            if ollama is None:
-                raise RuntimeError('Ollama não está disponível.')
+        if ollama is None:
+            raise RuntimeError('Ollama não está disponível.')
 
+        try:
             resposta = ollama.embeddings(
                 model='nomic-embed-text',
                 prompt=f'{prefixo}: {texto}',
@@ -97,27 +83,24 @@ class VectorService:
             if hasattr(resposta, 'embedding'):
                 embedding = resposta.embedding
             elif isinstance(resposta, dict):
-                if 'embedding' in resposta:
-                    embedding = resposta['embedding']
-                elif 'data' in resposta and resposta['data']:
-                    embedding = resposta['data'][0].get('embedding', [])
-                else:
-                    embedding = []
+                embedding = resposta.get('embedding', [])
             else:
                 embedding = []
+        except Exception as error:
+            raise RuntimeError('Não foi possível gerar o embedding no Ollama.') from error
 
-            if isinstance(embedding, list) and len(embedding) == dimensao:
-                return [float(item) for item in embedding]
-        except Exception:
-            pass
+        if not isinstance(embedding, list) or len(embedding) != dimensao:
+            raise RuntimeError(
+                f'Embedding inválido: esperado {dimensao} dimensões.'
+            )
 
-        return cls._fallback_embedding(texto, dimensao)
+        return [float(item) for item in embedding]
 
     @staticmethod
     def _extrair_markdown_por_pagina(caminho_pdf: str) -> List[Tuple[int, str]]:
         try:
             if pymupdf4llm is None:
-                return []
+                raise RuntimeError('pymupdf4llm não está instalado.')
 
             markdown_pages = pymupdf4llm.to_markdown(caminho_pdf, page_chunks=True)
             paginas: List[Tuple[int, str]] = []
@@ -134,11 +117,18 @@ class VectorService:
                         numero_pagina = metadata.get('page_number', indice_pagina + 1)
                         paginas.append((numero_pagina, texto))
             return paginas
-        except Exception:
-            return []
+        except Exception as error:
+            raise RuntimeError(f'Falha ao extrair o PDF: {caminho_pdf}') from error
 
     @classmethod
-    def processar_documento(cls, documento, caminho_pdf: str | None = None, chunk_size: int = 900, chunk_overlap: int = 150) -> int:
+    def processar_documento(
+        cls,
+        documento,
+        caminho_pdf: str | None = None,
+        chunk_size: int = 1400,
+        chunk_overlap: int = 150,
+        batch_size: int = 50,
+    ) -> int:
         if documento is None:
             return 0
 
@@ -153,6 +143,7 @@ class VectorService:
             return 0
 
         chunks_para_salvar: List[DocumentoChunk] = []
+        total_salvo = 0
         nome_arquivo = Path(caminho).name
         splitter = (
             MarkdownTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
@@ -160,41 +151,51 @@ class VectorService:
             else None
         )
 
-        for numero_pagina, markdown_texto in paginas:
-            if not markdown_texto or not markdown_texto.strip():
-                continue
-
-            if splitter is None or Document is None:
-                chunks = [markdown_texto]
-            else:
-                documentos = splitter.split_documents([
-                    Document(
-                        page_content=markdown_texto,
-                        metadata={'page_number': numero_pagina},
-                    )
-                ])
-                chunks = [chunk.page_content for chunk in documentos]
-
-            for chunk in chunks:
-                texto_chunk = f'Documento: {nome_arquivo}.\n{chunk}'.strip()
-                texto_chunk = texto_chunk.replace('\x00', '')
-                if not texto_chunk:
+        try:
+            for numero_pagina, markdown_texto in paginas:
+                if not markdown_texto or not markdown_texto.strip():
                     continue
-                embedding = cls.gerar_embedding(texto_chunk)
-                chunks_para_salvar.append(
-                    DocumentoChunk(
-                        id_documento=documento,
-                        pagina=numero_pagina,
-                        conteudo=texto_chunk,
-                        embedding=embedding,
+
+                if splitter is None or Document is None:
+                    chunks = [markdown_texto]
+                else:
+                    documentos = splitter.split_documents([
+                        Document(
+                            page_content=markdown_texto,
+                            metadata={'page_number': numero_pagina},
+                        )
+                    ])
+                    chunks = [chunk.page_content for chunk in documentos]
+
+                for chunk in chunks:
+                    texto_chunk = f'Documento: {nome_arquivo}.\n{chunk}'.strip()
+                    texto_chunk = texto_chunk.replace('\\x00', '')
+                    if not texto_chunk:
+                        continue
+                    chunks_para_salvar.append(
+                        DocumentoChunk(
+                            id_documento=documento,
+                            pagina=numero_pagina,
+                            conteudo=texto_chunk,
+                            embedding=cls.gerar_embedding(texto_chunk),
+                        )
                     )
-                )
 
-        if chunks_para_salvar:
-            with transaction.atomic():
-                DocumentoChunk.objects.bulk_create(chunks_para_salvar)
+                    if len(chunks_para_salvar) >= batch_size:
+                        with transaction.atomic():
+                            DocumentoChunk.objects.bulk_create(chunks_para_salvar)
+                        total_salvo += len(chunks_para_salvar)
+                        chunks_para_salvar.clear()
 
-        return len(chunks_para_salvar)
+            if chunks_para_salvar:
+                with transaction.atomic():
+                    DocumentoChunk.objects.bulk_create(chunks_para_salvar)
+                total_salvo += len(chunks_para_salvar)
+        except Exception:
+            DocumentoChunk.objects.filter(id_documento=documento).delete()
+            raise
+
+        return total_salvo
 
     @classmethod
     def buscar_contexto(cls, pergunta: str, categoria: str | None = None, limite: int = 5):
