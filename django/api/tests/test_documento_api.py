@@ -175,7 +175,16 @@ class DocumentoApiTest(TestCase):
 
     def test_criar_documento_com_sucesso_via_post(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
-        arquivo_pdf = SimpleUploadedFile("teste.pdf", b"%PDF-1.4 Fake PDF Content", content_type="application/pdf")
+        import pymupdf
+
+        pdf = pymupdf.open()
+        pdf.new_page()
+        arquivo_pdf = SimpleUploadedFile(
+            "teste.pdf",
+            pdf.tobytes(),
+            content_type="application/pdf",
+        )
+        pdf.close()
         payload = {
             'tipo_arquivo': 'pdf',
             'nome': 'Relatorio Teste.pdf',
