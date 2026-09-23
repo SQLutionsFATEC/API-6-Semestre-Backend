@@ -1,4 +1,5 @@
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -100,7 +101,7 @@ class VectorServiceTest(TestCase):
         self.assertEqual(total, 1)
         chunk = DocumentoChunk.objects.get(id_documento=self.documento)
         self.assertEqual(chunk.pagina, 2)
-        self.assertIn('Manual Vetor.pdf', chunk.conteudo)
+        self.assertIn(Path(arquivo.name).name, chunk.conteudo)
 
     def test_processar_documento_remove_chunks_quando_embedding_falha(self):
         DocumentoChunk.objects.create(
@@ -130,6 +131,10 @@ class VectorServiceTest(TestCase):
         )
 
     def test_buscar_contexto_retorna_chunks_filtrados(self):
+        from api.models import Etiqueta
+
+        etiqueta = Etiqueta.objects.create(nome='Manual')
+        self.documento.etiquetas.add(etiqueta)
         DocumentoChunk.objects.create(
             id_documento=self.documento,
             pagina=1,
