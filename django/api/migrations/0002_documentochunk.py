@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name='documentochunk',
-            index=models.Index(fields=['id_documento', 'pagina'], name='idx_documento_chunk_documento_pagina'),
+            index=models.Index(fields=['id_documento', 'pagina'], name='idx_doc_chunk_pag'),
         ),
     ]
 
@@ -47,6 +47,6 @@ class Migration(migrations.Migration):
         operations.append(
             migrations.AddIndex(
                 model_name='documentochunk',
-                index=HnswIndex(fields=['embedding'], name='idx_documento_chunk_embedding_hnsw', opclasses=['vector_cosine_ops']),
+                index=HnswIndex(fields=['embedding'], name='idx_doc_chunk_emb_hnsw', opclasses=['vector_cosine_ops']),
             )
         )
