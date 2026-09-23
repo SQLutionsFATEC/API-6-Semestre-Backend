@@ -9,6 +9,7 @@ from api.models import Etiqueta
 from api.serializers import DocumentoSerializer
 from api.serializers import EtiquetaSerializer
 from api.services.ml_service import MLService
+from api.services.vector_service import VectorService
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
@@ -38,6 +39,14 @@ class DocumentoViewSet(ModelViewSet):
         except Exception as e:
             return Response(
                 {"erro": f"Erro ao processar o upload do documento: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            VectorService.processar_documento(documento, caminho_pdf)
+        except Exception:
+            return Response(
+                {"erro": "Erro ao processar o documento."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
