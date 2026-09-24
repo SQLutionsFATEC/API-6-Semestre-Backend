@@ -16,7 +16,6 @@ services:
       - DB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - RUN_SEED=${RUN_SEED:-false}
     depends_on:
       postgres:
         condition: service_healthy

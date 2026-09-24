@@ -1,8 +1,5 @@
 # docker-compose.test.yml
-# Ambiente isolado de testes de integração — DevOps SCRUM-88
-# Uso:
-#   docker compose -f deploy/docker-compose.test.yml --env-file deploy/.env up --build --abort-on-container-exit
-#   docker compose -f deploy/docker-compose.test.yml down -v
+# Ambiente isolado de testes de integração
 
 services:
   postgres-test:
@@ -10,38 +7,50 @@ services:
       context: ./postgres
     container_name: postgres-test-db
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: integration_test_password
+      POSTGRES_DB: api_test_db
     ports:
-      - "5433:5432"   # Porta diferente da 5432 (dev) - evita conflito
+      - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d api_test_db"
+        ]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
       start_period: 10s
+    restart: "no"
 
   backend-test:
     build:
       context: ../django
       dockerfile: ../deploy/backend/Dockerfile
-    container_name: django-test-app
-    env_file:
-      - .env
+    container_name: sqlutions-backend-integration-test
     environment:
-      - DB_NAME=${POSTGRES_DB}
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_HOST=postgres-test
-      - DB_PORT=5432
+      DB_NAME: api_test_db
+      DB_USER: postgres
+      DB_PASSWORD: integration_test_password
+      DB_HOST: postgres-test
+      DB_PORT: 5432
+      DJANGO_SECRET_KEY: integration-test-secret-key
+      ALLOWED_HOSTS: "*"
     depends_on:
       postgres-test:
         condition: service_healthy
     volumes:
       - ../django:/app
-    command: >
-      sh -c "
-        python manage.py smart_migrate &&
-        python -m pytest api/tests/ etl/tests/test_extraction.py -v --cov=api --cov=etl --cov-report=term-missing --cov-report=xml
-      "
+    command:
+      - python
+      - -m
+      - pytest
+      - api/tests/
+      - -v
+      - --cov=api
+      - --cov-config=.coveragerc
+      - --cov-report=term-missing
+      - --cov-report=xml:coverage.xml
+      - --junitxml=test-results.xml
+    restart: "no"

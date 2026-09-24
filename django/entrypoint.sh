@@ -16,23 +16,6 @@ else
     exit 1
 fi
 
-if [[ "$RUN_SEED" = "true" ]] || \
-   [[ "$RUN_SEED" = "True" ]] || \
-   [[ "$RUN_SEED" = "1" ]] || \
-   [[ "$RUN_SEED" = "TRUE" ]]; then
-
-    echo "🌱 RUN_SEED habilitado."
-
-    # Mantém o comportamento de seed existente quando houver
-    # comandos de seed configurados para o projeto.
-    if python manage.py help seed_dynamic >/dev/null 2>&1; then
-        echo "Executando seed_dynamic..."
-        python manage.py seed_dynamic
-    else
-        echo "⚠️ Comando seed_dynamic não encontrado. Seed ignorado."
-    fi
-fi
-
 if [ "$#" -gt 0 ]; then
     echo "$SEPARATOR"
     echo "🚀 Executando comando do container:"
