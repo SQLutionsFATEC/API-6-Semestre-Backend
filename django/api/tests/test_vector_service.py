@@ -88,6 +88,28 @@ class VectorServiceTest(TestCase):
 
         self.assertEqual(paginas, [(1, 'Texto obtido por OCR')])
 
+    def test_extrair_markdown_nao_usa_ocr_quando_texto_direto_e_suficiente(self):
+        import pymupdf
+
+        texto_direto = 'Texto extraído diretamente do PDF com caracteres suficientes.'
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            documento = pymupdf.open()
+            pagina = documento.new_page()
+            pagina.insert_text((72, 72), texto_direto)
+            documento.save(arquivo.name)
+            documento.close()
+            with patch(
+                'api.services.vector_service.pymupdf4llm.to_markdown',
+                return_value=[{'text': 'curto', 'metadata': {}}],
+            ), patch.object(
+                VectorService,
+                '_extrair_texto_ocr',
+            ) as extrair_ocr:
+                paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
+
+        extrair_ocr.assert_not_called()
+        self.assertEqual(paginas, [(1, texto_direto)])
+
     def test_processar_documento_salva_chunks_extraidos(self):
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
             with patch.object(

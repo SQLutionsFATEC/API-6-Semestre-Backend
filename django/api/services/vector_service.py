@@ -20,7 +20,7 @@ import ollama
 
 OCR_MIN_CHARS = 50
 OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'por+eng')
-EMBEDDING_MODEL = 'nomic-embed-text-v2-moe'
+EMBEDDING_MODEL = os.getenv('OLLAMA_MODEL', 'nomic-embed-text-v2-moe')
 MAX_COSINE_DISTANCE = 0.62
 
 if os.getenv('TESSERACT_CMD'):
@@ -91,7 +91,11 @@ class VectorService:
     @staticmethod
     def _extrair_markdown_por_pagina(caminho_pdf: str) -> List[Tuple[int, str]]:
         try:
-            markdown_pages = pymupdf4llm.to_markdown(caminho_pdf, page_chunks=True)
+            markdown_pages = pymupdf4llm.to_markdown(
+                caminho_pdf,
+                page_chunks=True,
+                use_ocr=False,
+            )
             paginas: List[Tuple[int, str]] = []
             with pymupdf.open(caminho_pdf) as pdf:
                 for indice_pagina, pagina_markdown in enumerate(markdown_pages):
@@ -99,13 +103,18 @@ class VectorService:
                     if indice_pagina == 0:
                         texto = VectorService._remover_marca_everyspec(texto)
                     if len(texto.strip()) < OCR_MIN_CHARS:
-                        texto_ocr = VectorService._extrair_texto_ocr(pdf[indice_pagina]).strip()
-                        if texto_ocr:
-                            texto = (
-                                VectorService._remover_marca_everyspec(texto_ocr)
-                                if indice_pagina == 0
-                                else texto_ocr
-                            )
+                        pagina = pdf[indice_pagina]
+                        texto_direto = pagina.get_text('text').strip()
+                        if len(texto_direto) >= OCR_MIN_CHARS:
+                            texto = texto_direto
+                        else:
+                            texto_ocr = VectorService._extrair_texto_ocr(pagina).strip()
+                            if texto_ocr:
+                                texto = (
+                                    VectorService._remover_marca_everyspec(texto_ocr)
+                                    if indice_pagina == 0
+                                    else texto_ocr
+                                )
 
                     if texto and texto.strip():
                         metadata = pagina_markdown.get('metadata', {})
