@@ -1,3 +1,5 @@
+import json
+
 from django.test import TestCase
 
 from api.models import Documento, Etiqueta
@@ -255,8 +257,11 @@ class DocumentoApiTest(TestCase):
             'api.views.documento_api.VectorService.buscar_contexto',
             return_value=resultados,
         ) as buscar_contexto:
-            response = self.client.get(
-                '/api/documentos/?contexto=%20%20Seguran%C3%A7a%20de%20Redes%20%20',
+            response = self.client.generic(
+                'GET',
+                '/api/documentos/',
+                data=json.dumps({'contexto': '  Segurança de Redes  '}),
+                content_type='application/json',
             )
 
         self.assertEqual(response.status_code, 200)
@@ -266,8 +271,11 @@ class DocumentoApiTest(TestCase):
         buscar_contexto.assert_called_once_with('segurança de redes', limite=5)
 
     def test_pesquisa_documentos_rejeita_contexto_vazio(self):
-        response = self.client.get(
-            '/api/documentos/?contexto=%20%20%20',
+        response = self.client.generic(
+            'GET',
+            '/api/documentos/',
+            data=json.dumps({'contexto': '   '}),
+            content_type='application/json',
         )
 
         self.assertEqual(response.status_code, 400)

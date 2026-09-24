@@ -68,7 +68,7 @@ class DocumentoViewSet(ModelViewSet):
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&page={numero da pagina}
-    # Busca semântica opcional: ?contexto={texto da busca}
+    # Busca semântica opcional: contexto no body JSON
     # ========================================================
     @extend_schema(
         parameters=[
@@ -94,14 +94,18 @@ class DocumentoViewSet(ModelViewSet):
                 required=False,
                 default=1,
             ),
-            OpenApiParameter(
-                name="contexto",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                description="Contexto usado para buscar os cinco trechos mais próximos.",
-                required=False,
-            ),
         ],
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "contexto": {
+                        "type": "string",
+                        "description": "Contexto usado para buscar os cinco trechos mais próximos.",
+                    },
+                },
+            },
+        },
         responses={
             200: OpenApiResponse(description="Lista paginada de documentos."),
             400: OpenApiResponse(description="Número de página inválido."),
@@ -109,7 +113,7 @@ class DocumentoViewSet(ModelViewSet):
         },
     )
     def list(self, request, *args, **kwargs):
-        contexto = request.query_params.get("contexto")
+        contexto = request.data.get("contexto")
         if contexto is not None:
             if not isinstance(contexto, str) or not contexto.strip():
                 return Response(
