@@ -16,6 +16,8 @@ services:
       - DB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_HOST=postgres
       - DB_PORT=5432
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-nomic-embed-text-v2-moe}
       - RUN_SEED=${RUN_SEED:-false}
     depends_on:
       postgres:
@@ -62,6 +64,37 @@ services:
       retries: 10
       start_period: 10s
 
+  # -------------------- Ollama --------------------
+  ollama:
+    profiles:
+      - ollama
+    image: ollama/ollama:latest
+    container_name: ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollamadata:/root/.ollama
+    healthcheck:
+      test: [ "CMD", "ollama", "list" ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  ollama-model:
+    profiles:
+      - ollama
+    image: ollama/ollama:latest
+    container_name: ollama-model-init
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: [ "pull", "${OLLAMA_MODEL:-nomic-embed-text-v2-moe}" ]
+
 volumes:
   postgresdata:
-
+  ollamadata:
