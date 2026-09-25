@@ -17,7 +17,7 @@ from django.http import Http404
 from django.core.paginator import EmptyPage
 from django.db import transaction
 from rest_framework import serializers
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, When
 
 
 class DocumentoViewSet(ModelViewSet):
@@ -114,6 +114,7 @@ class DocumentoViewSet(ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         contexto = request.data.get("contexto")
+        ids_documentos_contexto = None
         if contexto is not None:
             if not isinstance(contexto, str) or not contexto.strip():
                 return Response(
@@ -125,24 +126,30 @@ class DocumentoViewSet(ModelViewSet):
                 contexto.strip().lower(),
                 limite=5,
             )
-            ids_documentos = [chunk['id_documento_id'] for chunk in chunks]
-            documentos_por_id = Documento.objects.in_bulk(ids_documentos)
-            documentos = []
-            documentos_vistos = set()
-            for id_documento in ids_documentos:
-                if id_documento in documentos_vistos:
-                    continue
-                if id_documento in documentos_por_id:
-                    documentos.append(documentos_por_id[id_documento])
-                    documentos_vistos.add(id_documento)
-
-            resultados = DocumentoSerializer(documentos, many=True).data
-            return Response({"resultados": resultados}, status=status.HTTP_200_OK)
+            ids_documentos_contexto = list(
+                dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
+            )
 
         nome = request.query_params.get("nome")
         etiquetas = request.query_params.get("etiquetas")
 
-        queryset = self.get_queryset().order_by("id_documento")
+        queryset = self.get_queryset()
+
+        if ids_documentos_contexto is not None:
+            queryset = queryset.filter(id_documento__in=ids_documentos_contexto)
+            if ids_documentos_contexto:
+                ordem_contexto = Case(
+                    *[
+                        When(id_documento=id_documento, then=posicao)
+                        for posicao, id_documento in enumerate(ids_documentos_contexto)
+                    ],
+                    output_field=IntegerField(),
+                )
+                queryset = queryset.order_by(ordem_contexto)
+            else:
+                queryset = queryset.none()
+        else:
+            queryset = queryset.order_by("id_documento")
 
         search_query = Q()
         

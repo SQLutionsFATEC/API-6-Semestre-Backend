@@ -265,7 +265,7 @@ class DocumentoApiTest(TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        resposta = response.json()['resultados']
+        resposta = response.json()['results']
         self.assertEqual(len(resposta), 1)
         self.assertEqual(resposta[0]['id_documento'], self.documento.id_documento)
         buscar_contexto.assert_called_once_with('segurança de redes', limite=5)
