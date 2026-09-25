@@ -134,28 +134,14 @@ class DocumentoViewSet(ModelViewSet):
         etiquetas = request.query_params.get("etiquetas")
 
         queryset = self.get_queryset()
-
-        if ids_documentos_contexto is not None:
-            queryset = queryset.filter(id_documento__in=ids_documentos_contexto)
-            if ids_documentos_contexto:
-                ordem_contexto = Case(
-                    *[
-                        When(id_documento=id_documento, then=posicao)
-                        for posicao, id_documento in enumerate(ids_documentos_contexto)
-                    ],
-                    output_field=IntegerField(),
-                )
-                queryset = queryset.order_by(ordem_contexto)
-            else:
-                queryset = queryset.none()
-        else:
-            queryset = queryset.order_by("id_documento")
-
         search_query = Q()
-        
+
+        if ids_documentos_contexto:
+            search_query |= Q(id_documento__in=ids_documentos_contexto)
+
         if nome:
             search_query |= Q(nome__icontains=nome)
-            
+
         if etiquetas:
             palavras_etiquetas = etiquetas.split()
             for palavra in palavras_etiquetas:
@@ -163,6 +149,19 @@ class DocumentoViewSet(ModelViewSet):
 
         if search_query:
             queryset = queryset.filter(search_query).distinct()
+
+        if ids_documentos_contexto:
+            ordem_contexto = Case(
+                *[
+                    When(id_documento=id_documento, then=posicao)
+                    for posicao, id_documento in enumerate(ids_documentos_contexto)
+                ],
+                default=len(ids_documentos_contexto),
+                output_field=IntegerField(),
+            )
+            queryset = queryset.order_by(ordem_contexto, "id_documento")
+        else:
+            queryset = queryset.order_by("id_documento")
 
         try:
             page_number = int(request.query_params.get("page", 1))
