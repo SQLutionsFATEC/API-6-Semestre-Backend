@@ -16,7 +16,7 @@ else
     exit 1
 fi
 
-if [ "$#" -gt 0 ]; then
+if [[ "$#" -gt 0 ]]; then
     echo "$SEPARATOR"
     echo "🚀 Executando comando do container:"
     echo "$*"
