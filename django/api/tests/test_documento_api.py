@@ -1,3 +1,5 @@
+import json
+
 from django.test import TestCase
 
 from api.models import Documento, Etiqueta
@@ -15,6 +17,7 @@ class DocumentoApiTest(TestCase):
         self.etiqueta = Etiqueta.objects.create(
             nome='Importante'
         )
+
 
     def test_retorna_documento_pelo_id(self):
         response = self.client.get(f'/api/documentos/{self.documento.id_documento}/')
@@ -174,7 +177,17 @@ class DocumentoApiTest(TestCase):
 
     def test_criar_documento_com_sucesso_via_post(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
-        arquivo_pdf = SimpleUploadedFile("teste.pdf", b"%PDF-1.4 Fake PDF Content", content_type="application/pdf")
+        import pymupdf
+        from unittest.mock import patch
+
+        pdf = pymupdf.open()
+        pdf.new_page()
+        arquivo_pdf = SimpleUploadedFile(
+            "teste.pdf",
+            pdf.tobytes(),
+            content_type="application/pdf",
+        )
+        pdf.close()
         payload = {
             'tipo_arquivo': 'pdf',
             'nome': 'Relatorio Teste.pdf',
@@ -182,10 +195,46 @@ class DocumentoApiTest(TestCase):
             'nivel': 'Público',
             'data': arquivo_pdf,
         }
-        response = self.client.post('/api/documentos/', data=payload)
+        with patch(
+            'api.views.documento_api.MLService.classificar_documento',
+            return_value='NAO_CLASSIFICADO',
+        ), patch(
+            'api.views.documento_api.VectorService.processar_documento',
+            return_value=0,
+        ):
+            response = self.client.post('/api/documentos/', data=payload)
+
         self.assertEqual(response.status_code, 201)
         self.assertIn('id_documento', response.json())
         self.assertTrue(Etiqueta.objects.filter(nome="NAO_CLASSIFICADO").exists())
+
+    def test_criar_documento_retorna_400_quando_processamento_falha(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from unittest.mock import patch
+
+        payload = {
+            'tipo_arquivo': 'pdf',
+            'nome': 'Relatorio Com Erro.pdf',
+            'setor': 'TI',
+            'nivel': 'Público',
+            'data': SimpleUploadedFile(
+                'erro.pdf',
+                b'%PDF-1.4',
+                content_type='application/pdf',
+            ),
+        }
+        with patch(
+            'api.views.documento_api.MLService.classificar_documento',
+            return_value='NAO_CLASSIFICADO',
+        ), patch(
+            'api.views.documento_api.VectorService.processar_documento',
+            side_effect=RuntimeError('falha no processamento'),
+        ):
+            response = self.client.post('/api/documentos/', data=payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('falha no processamento', response.json()['erro'])
+        self.assertFalse(Documento.objects.filter(nome='Relatorio Com Erro.pdf').exists())
 
     def test_lista_documentos_rejeita_pagina_menor_que_um(self):
         response = self.client.get('/api/documentos/?page=0')
@@ -196,6 +245,78 @@ class DocumentoApiTest(TestCase):
         response = self.client.get('/api/documentos/?page=9999')
         self.assertEqual(response.status_code, 404)
         self.assertIn('detail', response.json())
+
+    def test_pesquisa_documentos_retorna_os_cinco_trechos_mais_proximos(self):
+        from unittest.mock import patch
+
+        resultados = [
+            {'id_chunk': indice, 'id_documento_id': self.documento.id_documento}
+            for indice in range(5)
+        ]
+        with patch(
+            'api.views.documento_api.VectorService.buscar_contexto',
+            return_value=resultados,
+        ) as buscar_contexto:
+            response = self.client.generic(
+                'GET',
+                '/api/documentos/',
+                data=json.dumps({'contexto': '  Segurança de Redes  '}),
+                content_type='application/json',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        resposta = response.json()['results']
+        self.assertEqual(len(resposta), 1)
+        self.assertEqual(resposta[0]['id_documento'], self.documento.id_documento)
+        buscar_contexto.assert_called_once_with('segurança de redes', limite=5)
+
+    def test_pesquisa_documentos_rejeita_contexto_vazio(self):
+        response = self.client.generic(
+            'GET',
+            '/api/documentos/',
+            data=json.dumps({'contexto': '   '}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('contexto', response.json()['erro'])
+
+    def test_cria_documento_chunk_com_embedding_valido(self):
+        from api.models import DocumentoChunk
+
+        documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Manual Vetor.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/manual-vetor.pdf',
+        )
+
+        chunk = DocumentoChunk.objects.create(
+            id_documento=documento,
+            pagina=1,
+            conteudo='Conteúdo do documento para busca semântica.',
+            embedding=[0.1] * 768,
+        )
+
+        self.assertEqual(chunk.id_documento, documento)
+        self.assertEqual(chunk.pagina, 1)
+        self.assertEqual(len(chunk.embedding), 768)
+
+    def test_processar_documento_sem_arquivo_retorna_zero_chunks(self):
+        from api.services.vector_service import VectorService
+
+        documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Sem Arquivo.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/sem-arquivo.pdf',
+        )
+
+        total = VectorService.processar_documento(documento, caminho_pdf='caminho_inexistente.pdf')
+
+        self.assertEqual(total, 0)
 
     def test_lista_documentos_filtrando_por_etiqueta(self):
         self.documento.etiquetas.add(self.etiqueta)

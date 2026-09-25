@@ -11,10 +11,13 @@ from api.models import Etiqueta
 from api.serializers import DocumentoSerializer
 from api.serializers import EtiquetaSerializer
 from api.services.ml_service import MLService
+from api.services.vector_service import VectorService
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
-from django.db.models import Q
+from django.db import transaction
+from rest_framework import serializers
+from django.db.models import Case, IntegerField, Q, When
 
 
 class DocumentoViewSet(ModelViewSet):
@@ -37,24 +40,35 @@ class DocumentoViewSet(ModelViewSet):
     # ========================================================
     def perform_create(self, serializer):
         try:
-            # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
-            documento = serializer.save()
+            # O transaction.atomic garante que, se qualquer coisa falhar aqui dentro,
+            # NADA será salvo no banco de dados (faz o rollback automático do serializer.save())
+            with transaction.atomic():
+                # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
+                documento = serializer.save()
 
-            # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
-            caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
-            tag_predita = MLService.classificar_documento(caminho_pdf)
+                # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
+                caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
+                tag_predita = MLService.classificar_documento(caminho_pdf)
 
-            # 3. Obtém ou cria a etiqueta e vincula ao documento
-            etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
-            documento.etiquetas.add(etiqueta)
+                # 3. Obtém ou cria a etiqueta e vincula ao documento
+                etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
+                documento.etiquetas.add(etiqueta)
+
+                # 4. Processa no VectorService (Se falhar aqui, o banco desfaz o passo 1 e 3)
+                VectorService.processar_documento(documento, caminho_pdf)
+
         except Exception as e:
-            return Response(
-                {"erro": f"Erro ao processar o upload do documento: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            # Atenção: O banco de dados já fez o rollback neste ponto.
+            # Se o arquivo físico no disco não for apagado automaticamente pelos seus models/signals,
+            # você pode precisar apagar o arquivo físico aqui usando 'os.remove(caminho_pdf)'
+
+            raise serializers.ValidationError(
+                {"erro": f"Erro ao processar o upload do documento: {str(e)}"}
             )
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&page={numero da pagina}
+    # Busca semântica opcional: contexto no body JSON
     # ========================================================
     @extend_schema(
         parameters=[
@@ -81,6 +95,17 @@ class DocumentoViewSet(ModelViewSet):
                 default=1,
             ),
         ],
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "contexto": {
+                        "type": "string",
+                        "description": "Contexto usado para buscar os cinco trechos mais próximos.",
+                    },
+                },
+            },
+        },
         responses={
             200: OpenApiResponse(description="Lista paginada de documentos."),
             400: OpenApiResponse(description="Número de página inválido."),
@@ -88,16 +113,35 @@ class DocumentoViewSet(ModelViewSet):
         },
     )
     def list(self, request, *args, **kwargs):
+        contexto = request.data.get("contexto")
+        ids_documentos_contexto = None
+        if contexto is not None:
+            if not isinstance(contexto, str) or not contexto.strip():
+                return Response(
+                    {"erro": "O campo contexto é obrigatório e não pode ser vazio."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            chunks = VectorService.buscar_contexto(
+                contexto.strip().lower(),
+                limite=5,
+            )
+            ids_documentos_contexto = list(
+                dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
+            )
+
         nome = request.query_params.get("nome")
         etiquetas = request.query_params.get("etiquetas")
 
-        queryset = self.get_queryset().order_by("id_documento")
-
+        queryset = self.get_queryset()
         search_query = Q()
-        
+
+        if ids_documentos_contexto:
+            search_query |= Q(id_documento__in=ids_documentos_contexto)
+
         if nome:
             search_query |= Q(nome__icontains=nome)
-            
+
         if etiquetas:
             palavras_etiquetas = etiquetas.split()
             for palavra in palavras_etiquetas:
@@ -105,6 +149,19 @@ class DocumentoViewSet(ModelViewSet):
 
         if search_query:
             queryset = queryset.filter(search_query).distinct()
+
+        if ids_documentos_contexto:
+            ordem_contexto = Case(
+                *[
+                    When(id_documento=id_documento, then=posicao)
+                    for posicao, id_documento in enumerate(ids_documentos_contexto)
+                ],
+                default=len(ids_documentos_contexto),
+                output_field=IntegerField(),
+            )
+            queryset = queryset.order_by(ordem_contexto, "id_documento")
+        else:
+            queryset = queryset.order_by("id_documento")
 
         try:
             page_number = int(request.query_params.get("page", 1))
