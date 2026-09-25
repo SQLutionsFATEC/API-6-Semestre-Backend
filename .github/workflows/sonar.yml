@@ -85,31 +85,31 @@ jobs:
             --rm \
             backend-test
 
-          - name: Normalize coverage paths for SonarCloud
-          run: |
-            python - <<'PY'
-            import os
-            import xml.etree.ElementTree as ET
+      - name: Normalize coverage paths for SonarCloud
+        run: |
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
 
-            report_path = "django/coverage.xml"
-            tree = ET.parse(report_path)
-            root = tree.getroot()
+          report_path = "django/coverage.xml"
+          tree = ET.parse(report_path)
+          root = tree.getroot()
 
-            for source in root.findall("./sources/source"):
+          for source in root.findall("./sources/source"):
               source.text = os.environ["GITHUB_WORKSPACE"]
 
-            for class_node in root.findall(".//class"):
+          for class_node in root.findall(".//class"):
               filename = class_node.get("filename", "")
               if filename.startswith("django/"):
-                continue
+                  continue
               if filename.startswith("api/"):
-                filename = f"django/{filename}"
+                  filename = f"django/{filename}"
               else:
-                filename = f"django/api/{filename}"
+                  filename = f"django/api/{filename}"
               class_node.set("filename", filename)
 
-            tree.write(report_path, encoding="utf-8", xml_declaration=True)
-            PY
+          tree.write(report_path, encoding="utf-8", xml_declaration=True)
+          PY
 
       - name: Verify generated reports
         run: |
