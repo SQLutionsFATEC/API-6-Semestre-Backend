@@ -2,15 +2,29 @@ name: SonarCloud Analysis
 
 on:
   push:
-    branches: [ "main", "develop-1", "develop-2", "develop-3" ]
+    branches:
+      - main
+      - develop-1
+      - develop-2
+      - develop-3
+
   pull_request:
-    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - develop-1
+      - develop-2
+      - develop-3
+    types:
+      - opened
+      - synchronize
+      - reopened
+
   schedule:
-    - cron: '0 2 * * 6' 
+    - cron: "0 2 * * 6"
 
 jobs:
   sonarcloud:
-    name: SonarCloud Scan
+    name: Integration Tests and SonarCloud
     runs-on: ubuntu-latest
     
     # 1. Cria um banco de dados temporário no GitHub para os testes rodarem
@@ -35,19 +49,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      # --- 1. SETUP PYTHON ---
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      # --- 2. INSTALL DEPENDENCIES ---
-      - name: Install dependencies
+      - name: Build integration test images
         run: |
-          python -m pip install --upgrade pip
-          # Installs standard Django deps, plus coverage and ETL deps (pandas)
-          pip install -r django/requirements.txt
-          pip install coverage pandas
+          docker compose \
+            -f deploy/docker-compose.test.yml \
+            build
+
+      - name: Start PostgreSQL test database
+        run: |
+          docker compose \
+            -f deploy/docker-compose.test.yml \
+            up \
+            -d \
+            --wait \
+            postgres-test
 
       - name: Enable pgvector extension
         env:
@@ -63,18 +78,34 @@ jobs:
           POSTGRES_USER: api_user
           POSTGRES_PASSWORD: senha_padrao
           DJANGO_SECRET_KEY: 'test-secret-key-for-github-actions'
+      - name: Run backend integration tests
         run: |
-          cd django
-          # Testa os dois apps (api e etl) e gera o report combinado
-          coverage run --source='api' manage.py test
-          coverage report -m
-          coverage xml -o coverage.xml
-          
-          # Ajusta os caminhos no XML para o Sonar entender
-          sed -i "s|<source>.*</source>|<source>$GITHUB_WORKSPACE</source>|g" coverage.xml
-          sed -i 's/filename="/filename="django\//g' coverage.xml
+          docker compose \
+            -f deploy/docker-compose.test.yml \
+            run \
+            --rm \
+            backend-test
 
-      # --- 4. RUN SONARCLOUD ---
+      - name: Verify generated reports
+        run: |
+          test -f django/coverage.xml
+          test -f django/test-results.xml
+
+          echo "Integration test reports generated successfully."
+
+          ls -lh \
+            django/coverage.xml \
+            django/test-results.xml
+
+      - name: Stop integration test environment
+        if: always()
+        run: |
+          docker compose \
+            -f deploy/docker-compose.test.yml \
+            down \
+            -v \
+            --remove-orphans
+
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v8.2.1
         env:
