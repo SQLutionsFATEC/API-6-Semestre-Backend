@@ -61,3 +61,8 @@ venv.bak/
 
 # Arquivos csv
 data/*.csv
+
+.idea/
+
+# Relatórios gerados automaticamente pelos testes
+test-results.xml
