@@ -71,14 +71,13 @@ jobs:
           psql -h localhost -U api_user -d api_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
       # --- 3. RUN TESTS & GENERATE XML ---
-      - name: Run tests and generate coverage report
+      - name: Run backend integration tests
         env:
           DB_HOST: localhost
           POSTGRES_DB: api_db
           POSTGRES_USER: api_user
           POSTGRES_PASSWORD: senha_padrao
           DJANGO_SECRET_KEY: 'test-secret-key-for-github-actions'
-      - name: Run backend integration tests
         run: |
           docker compose \
             -f deploy/docker-compose.test.yml \
