@@ -26,8 +26,6 @@ jobs:
   sonarcloud:
     name: Integration Tests and SonarCloud
     runs-on: ubuntu-latest
-    
-    # 1. Cria um banco de dados temporário no GitHub para os testes rodarem
     services:
       postgres:
         image: pgvector/pgvector:pg15
@@ -70,7 +68,6 @@ jobs:
         run: |
           psql -h localhost -U api_user -d api_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-      # --- 3. RUN TESTS & GENERATE XML ---
       - name: Run backend integration tests
         env:
           DB_HOST: localhost
@@ -85,12 +82,17 @@ jobs:
             --rm \
             backend-test
 
-      - name: Verify generated reports
+      - name: Verify and adjust generated reports
         run: |
           test -f django/coverage.xml
           test -f django/test-results.xml
 
           echo "Integration test reports generated successfully."
+
+          # maldita desgraça de preprocessamento de arquivo pro sonar achar a porra dos reports
+          sed -i "s|<source>.*</source>|<source>django/api</source>|g" django/coverage.xml
+          sed -i "s|<source>.*</source>|<source>.</source>|g" django/test-results.xml
+          sed -i 's|classname="api\.|classname="django.api.|g' django/test-results.xml
 
           ls -lh \
             django/coverage.xml \
