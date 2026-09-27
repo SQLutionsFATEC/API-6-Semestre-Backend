@@ -67,8 +67,8 @@ class DocumentoViewSet(ModelViewSet):
             )
 
     # ========================================================
-    # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&page={numero da pagina}
-    # Busca semântica opcional: contexto no body JSON
+    # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&contexto={contexto}&page={numero da pagina}
+    # Busca por nome, etiquetas ou contexto
     # ========================================================
     @extend_schema(
         parameters=[
@@ -87,6 +87,13 @@ class DocumentoViewSet(ModelViewSet):
                 required=False,
             ),
             OpenApiParameter(
+                name="contexto",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Busca documentos pelo contexto semântico.",
+                required=False,
+            ),
+            OpenApiParameter(
                 name="page",
                 type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
@@ -95,17 +102,6 @@ class DocumentoViewSet(ModelViewSet):
                 default=1,
             ),
         ],
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "contexto": {
-                        "type": "string",
-                        "description": "Contexto usado para buscar os cinco trechos mais próximos.",
-                    },
-                },
-            },
-        },
         responses={
             200: OpenApiResponse(description="Lista paginada de documentos."),
             400: OpenApiResponse(description="Número de página inválido."),
@@ -113,22 +109,19 @@ class DocumentoViewSet(ModelViewSet):
         },
     )
     def list(self, request, *args, **kwargs):
-        contexto = request.data.get("contexto")
+        contexto = request.query_params.get("contexto")
         ids_documentos_contexto = None
-        if contexto is not None:
-            if not isinstance(contexto, str) or not contexto.strip():
-                return Response(
-                    {"erro": "O campo contexto é obrigatório e não pode ser vazio."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        if contexto:
+            contexto = contexto.strip()
 
-            chunks = VectorService.buscar_contexto(
-                contexto.strip().lower(),
-                limite=5,
-            )
-            ids_documentos_contexto = list(
-                dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
-            )
+            if contexto:
+                chunks = VectorService.buscar_contexto(
+                    contexto.lower(),
+                    limite=5,
+                )
+                ids_documentos_contexto = list(
+                    dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
+                )
 
         nome = request.query_params.get("nome")
         etiquetas = request.query_params.get("etiquetas")
