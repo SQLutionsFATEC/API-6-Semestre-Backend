@@ -1,5 +1,3 @@
-import json
-
 from django.test import TestCase
 
 from api.models import Documento, Etiqueta
@@ -257,11 +255,9 @@ class DocumentoApiTest(TestCase):
             'api.views.documento_api.VectorService.buscar_contexto',
             return_value=resultados,
         ) as buscar_contexto:
-            response = self.client.generic(
-                'GET',
+            response = self.client.get(
                 '/api/documentos/',
-                data=json.dumps({'contexto': '  Segurança de Redes  '}),
-                content_type='application/json',
+                {'contexto': '  Segurança de Redes  '},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -270,16 +266,19 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(resposta[0]['id_documento'], self.documento.id_documento)
         buscar_contexto.assert_called_once_with('segurança de redes', limite=5)
 
-    def test_pesquisa_documentos_rejeita_contexto_vazio(self):
-        response = self.client.generic(
-            'GET',
-            '/api/documentos/',
-            data=json.dumps({'contexto': '   '}),
-            content_type='application/json',
-        )
+    def test_pesquisa_documentos_ignora_contexto_vazio(self):
+        from unittest.mock import patch
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('contexto', response.json()['erro'])
+        with patch(
+                'api.views.documento_api.VectorService.buscar_contexto'
+        ) as buscar_contexto:
+            response = self.client.get(
+                '/api/documentos/',
+                {'contexto': '   '},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        buscar_contexto.assert_not_called()
 
     def test_cria_documento_chunk_com_embedding_valido(self):
         from api.models import DocumentoChunk
