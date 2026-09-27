@@ -16,7 +16,15 @@ import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR.parent / '.env')
+load_dotenv(BASE_DIR.parent / 'deploy' / '.env')
+
+ML_MODEL_PATH = Path(
+    os.getenv(
+        'ML_MODEL_PATH',
+        BASE_DIR.parent / 'docs' / 'ml_etiqueta' / 'artifacts' / 'modelo_categorizacao_etiqueta.joblib'
+    )
+)
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -25,7 +33,7 @@ load_dotenv(BASE_DIR.parent / '.env')
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 FAKER_LOCALE = 'pt_BR'
 ALLOWED_HOSTS = [
     host.strip() for host in os.environ.get('ALLOWED_HOSTS', '*').split(',')
@@ -34,21 +42,21 @@ ALLOWED_HOSTS = [
 # Application definition
 
 INSTALLED_APPS = [
-    'django_prometheus',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
     'django_seed',
     'corsheaders',
     'rest_framework',
+    'drf_spectacular',
     'api',
 ]
 
 MIDDLEWARE = [
-    'django_prometheus.middleware.PrometheusBeforeMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django_prometheus.middleware.PrometheusAfterMiddleware',
 ]
 
 ROOT_URLCONF = 'api.urls'
@@ -72,12 +80,12 @@ WSGI_APPLICATION = 'api.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('MYSQL_DATABASE', 'api_db'),
-        'USER': os.environ.get('MYSQL_USER', 'api_user'),
-        'PASSWORD': os.environ.get('MYSQL_PASSWORD'),
-        'HOST': os.environ.get('DB_HOST', 'custom-mysql'),
-        'PORT': os.environ.get('DB_PORT', '3306'),
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', os.environ.get('POSTGRES_DB', 'api_db')),
+        'USER': os.environ.get('DB_USER', os.environ.get('POSTGRES_USER', 'api_user')),
+        'PASSWORD': os.environ.get('DB_PASSWORD', os.environ.get('POSTGRES_PASSWORD')),
+        'HOST': os.environ.get('DB_HOST', 'postgres'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
         'CONN_MAX_AGE': 60,
     }
 }
@@ -122,3 +130,18 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 CORS_ALLOW_ALL_ORIGINS = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'API de Documentos',
+    'DESCRIPTION': 'API para gerenciamento de documentos e etiquetas.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+
+# Configuração de arquivos de mídia (uploads de usuários)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
