@@ -65,10 +65,9 @@ class DocumentoViewSet(ModelViewSet):
             raise serializers.ValidationError(
                 {"erro": f"Erro ao processar o upload do documento: {str(e)}"}
             )
-
-    # ========================================================
-    # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&contexto={contexto}&page={numero da pagina}
-    # Busca por nome, etiquetas ou contexto
+# ========================================================
+    # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&data_atualizacao={data_atualizacao}&setor={setor}&contexto={contexto}&page={numero da pagina}
+    # Busca combinada utilizando lógica AND para metadados e filtragem de contexto final
     # ========================================================
     @extend_schema(
         parameters=[
@@ -76,21 +75,35 @@ class DocumentoViewSet(ModelViewSet):
                 name="nome",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Filtra documentos pelo nome, sem diferenciar maiúsculas e minúsculas.",
+                description="Filtra documentos pelo nome (aplicado em conjunto com outros filtros), sem diferenciar maiúsculas e minúsculas.",
                 required=False,
             ),
             OpenApiParameter(
                 name="etiquetas",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Filtra documentos pelas etiquetas (separadas por espaço).",
+                description="Filtra documentos pelas etiquetas (separadas por espaço). Atua como condição AND com os demais filtros.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="data_atualizacao",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                description="Filtra por data de atualização mínima (YYYY-MM-DD). Retorna documentos atualizados nesta data ou em datas posteriores.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="setor",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filtra documentos pelo(s) setor(es) (ex: Técnico, Normativo, Judiciário e Qualitativo). Pode receber múltiplos setores separados por vírgula.",
                 required=False,
             ),
             OpenApiParameter(
                 name="contexto",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Busca documentos pelo contexto semântico.",
+                description="Busca documentos pelo contexto semântico. A busca agirá APENAS sobre os documentos que já passaram pelos filtros anteriores.",
                 required=False,
             ),
             OpenApiParameter(
@@ -104,16 +117,45 @@ class DocumentoViewSet(ModelViewSet):
         ],
         responses={
             200: OpenApiResponse(description="Lista paginada de documentos."),
-            400: OpenApiResponse(description="Número de página inválido."),
+            400: OpenApiResponse(description="Parâmetros de busca ou número de página inválidos."),
             404: OpenApiResponse(description="Página solicitada inexistente."),
         },
     )
     def list(self, request, *args, **kwargs):
+        # 1. Recuperar parâmetros da requisição
+        nome = request.query_params.get("nome")
+        etiquetas = request.query_params.get("etiquetas")
+        data_atualizacao = request.query_params.get("data_atualizacao")
+        setor = request.query_params.get("setor")
         contexto = request.query_params.get("contexto")
+
+        queryset = self.get_queryset()
+
+        # 2. Aplicar Filtros Exatos (Lógica AND encadeada)
+        if nome:
+            queryset = queryset.filter(nome__icontains=nome)
+
+        if etiquetas:
+            palavras_etiquetas = etiquetas.split()
+            q_etiquetas = Q()
+            for palavra in palavras_etiquetas:
+                q_etiquetas |= Q(etiquetas__nome__icontains=palavra)
+            queryset = queryset.filter(q_etiquetas)
+
+        if data_atualizacao:
+            queryset = queryset.filter(data_atualizacao__gte=data_atualizacao)
+
+        if setor:
+            setores = [s.strip() for s in setor.split(',')]
+            q_setores = Q()
+            for s in setores:
+                q_setores |= Q(setor__icontains=s)
+            queryset = queryset.filter(q_setores)
+
+        # 3. Aplicar Pesquisa por Contexto (apenas nos documentos que restarem)
         ids_documentos_contexto = None
         if contexto:
             contexto = contexto.strip()
-
             if contexto:
                 chunks = VectorService.buscar_contexto(
                     contexto.lower(),
@@ -122,27 +164,15 @@ class DocumentoViewSet(ModelViewSet):
                 ids_documentos_contexto = list(
                     dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
                 )
+                
+                # A intersecção garante que o vetor só traga documentos que 
+                # sobreviveram aos filtros exatos acima
+                queryset = queryset.filter(id_documento__in=ids_documentos_contexto)
 
-        nome = request.query_params.get("nome")
-        etiquetas = request.query_params.get("etiquetas")
+        # O uso de campos M2M (como etiquetas) nas buscas pode duplicar resultados; apply distinct()
+        queryset = queryset.distinct()
 
-        queryset = self.get_queryset()
-        search_query = Q()
-
-        if ids_documentos_contexto:
-            search_query |= Q(id_documento__in=ids_documentos_contexto)
-
-        if nome:
-            search_query |= Q(nome__icontains=nome)
-
-        if etiquetas:
-            palavras_etiquetas = etiquetas.split()
-            for palavra in palavras_etiquetas:
-                search_query |= Q(etiquetas__nome__icontains=palavra)
-
-        if search_query:
-            queryset = queryset.filter(search_query).distinct()
-
+        # 4. Ordenação
         if ids_documentos_contexto:
             ordem_contexto = Case(
                 *[
@@ -156,6 +186,7 @@ class DocumentoViewSet(ModelViewSet):
         else:
             queryset = queryset.order_by("id_documento")
 
+        # 5. Paginação
         try:
             page_number = int(request.query_params.get("page", 1))
         except (TypeError, ValueError):
@@ -163,6 +194,7 @@ class DocumentoViewSet(ModelViewSet):
                 {"erro": "page deve ser um número inteiro positivo."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+            
         if page_number < 1:
             return Response(
                 {"erro": "page deve ser um número inteiro positivo."},
@@ -172,6 +204,7 @@ class DocumentoViewSet(ModelViewSet):
         paginator = PageNumberPagination()
         paginator.page_size = 10
         paginator.page_query_param = "page"
+        
         try:
             page = paginator.paginate_queryset(queryset, request, view=self)
         except EmptyPage:
@@ -180,8 +213,10 @@ class DocumentoViewSet(ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # 6. Serialização e Retorno
         serializer = DocumentoSerializer(page, many=True)
         results = serializer.data
+        
         for documento in results:
             documento.pop("data", None)
 
