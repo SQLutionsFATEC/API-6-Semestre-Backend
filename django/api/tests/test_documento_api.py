@@ -324,7 +324,7 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(len(response.json()['results']), 1)
         self.assertEqual(response.json()['results'][0]['nome'], 'Manual.pdf')
 
-    def test_lista_documentos_filtrando_por_nome_ou_etiqueta(self):
+    def test_lista_documentos_combina_nome_e_etiqueta_com_and(self):
         self.documento.etiquetas.add(self.etiqueta)
 
         Documento.objects.create(
@@ -338,7 +338,9 @@ class DocumentoApiTest(TestCase):
         response = self.client.get('/api/documentos/?nome=Manual&etiquetas=Importante')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()['results']), 2)
+        resultados = response.json()['results']
+        self.assertEqual(len(resultados), 1)
+        self.assertEqual(resultados[0]['nome'], 'Manual.pdf')
 
     def test_lista_documentos_filtrando_por_multiplas_etiquetas(self):
         etiqueta2 = Etiqueta.objects.create(nome='Urgente')

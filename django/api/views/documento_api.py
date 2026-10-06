@@ -71,6 +71,7 @@ class DocumentoViewSet(ModelViewSet):
             raise serializers.ValidationError(
                 {"erro": f"Erro ao processar o upload do documento: {str(e)}"}
             )
+
 # ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&data_atualizacao={data_atualizacao}&setor={setor}&contexto={contexto}&page={numero da pagina}
     # Busca combinada utilizando lógica AND para metadados e filtragem de contexto final
@@ -202,8 +203,8 @@ class DocumentoViewSet(ModelViewSet):
                 ids_documentos_contexto = list(
                     dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
                 )
-                
-                # A intersecção garante que o vetor só traga documentos que 
+
+                # A intersecção garante que o vetor só traga documentos que
                 # sobreviveram aos filtros exatos acima
                 queryset = queryset.filter(id_documento__in=ids_documentos_contexto)
 
