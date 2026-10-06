@@ -5,23 +5,26 @@ services:
       context: ../django
       dockerfile: ../deploy/backend/Dockerfile
     container_name: django-app
-    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    command: [ "python", "manage.py", "runserver", "0.0.0.0:8000" ]
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      - DB_NAME=${MYSQL_DATABASE}
-      - DB_USER=${MYSQL_USER}
-      - DB_PASSWORD=${MYSQL_PASSWORD}
-      - DB_HOST=custom-mysql
-      - DB_PORT=3306
+      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-nomic-embed-text-v2-moe}
       - RUN_SEED=${RUN_SEED:-false}
     depends_on:
-      custom-mysql:
+      postgres:
         condition: service_healthy
     volumes:
       - ../django:/app
+      - ../docs:/docs
 
   # -------------------- Frontend --------------------
   frontend:
@@ -42,68 +45,56 @@ services:
       - backend
 
   # -------------------- Database --------------------
-  custom-mysql:
+  postgres:
     build:
-      context: ./mysql
-    container_name: mysql-db
+      context: ./postgres
+    container_name: postgres-db
     environment:
-      - MYSQL_USER=${MYSQL_USER}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - MYSQL_DATABASE=${MYSQL_DATABASE}
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - mysqldata:/var/lib/mysql
+      - postgresdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin" ,"ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
-# -------------------- Monitoring --------------------
 
-  mysql-exporter:
-    image: prom/mysqld-exporter:v0.19.0
-    container_name: mysql-exporter
-    command:
-      - "--mysqld.address=custom-mysql:3306"
-      - "--mysqld.username=root:${MYSQL_ROOT_PASSWORD}"
+  # -------------------- Ollama --------------------
+  ollama:
+    profiles:
+      - ollama
+    image: ollama/ollama:latest
+    container_name: ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollamadata:/root/.ollama
+    healthcheck:
+      test: [ "CMD", "ollama", "list" ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  ollama-model:
+    profiles:
+      - ollama
+    image: ollama/ollama:latest
+    container_name: ollama-model-init
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
     depends_on:
-      custom-mysql:
+      ollama:
         condition: service_healthy
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    restart: unless-stopped
-    volumes:
-      # 🔍 CORRIGIDO: Mudado de prometheus.yml para prometheus.yaml (para bater com a sua pasta)
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheusdata:/prometheus
-    ports:
-      - "9090:9090"
-    depends_on:
-      - backend
-      - mysql-exporter
-
-  grafana:
-    image: grafana/grafana-oss:latest
-    container_name: grafana
-    restart: unless-stopped
-    volumes:
-      - grafanadata:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      # 🔍 CORRIGIDO: mudado para dashboards_models para ler seus arquivos reais!
-      - ./monitoring/grafana/dashboards_models:/var/lib/grafana/dashboards
-    ports:
-      - "3001:3000"
-    depends_on:
-      - prometheus
+    command: [ "pull", "${OLLAMA_MODEL:-nomic-embed-text-v2-moe}" ]
 
 volumes:
-  mysqldata:
-  prometheusdata:
-  grafanadata:    
-
+  postgresdata:
+  ollamadata:
