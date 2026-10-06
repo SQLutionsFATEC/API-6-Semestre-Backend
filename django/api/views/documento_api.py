@@ -4,7 +4,13 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+)
 
 from api.models import Documento
 from api.models import Etiqueta
@@ -70,6 +76,14 @@ class DocumentoViewSet(ModelViewSet):
     # Busca combinada utilizando lógica AND para metadados e filtragem de contexto final
     # ========================================================
     @extend_schema(
+        summary="Lista documentos com filtros combinados",
+        description=(
+            "Retorna documentos paginados. Os filtros de nome, etiquetas, "
+            "data_atualizacao e setor são combinados com lógica AND. "
+            "Múltiplas etiquetas são separadas por espaço e múltiplos setores "
+            "por vírgula. O filtro contexto executa busca semântica somente "
+            "sobre os documentos aprovados pelos filtros anteriores."
+        ),
         parameters=[
             OpenApiParameter(
                 name="nome",
@@ -82,8 +96,14 @@ class DocumentoViewSet(ModelViewSet):
                 name="etiquetas",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Filtra documentos pelas etiquetas (separadas por espaço). Atua como condição AND com os demais filtros.",
+                description="Filtra documentos por qualquer uma das etiquetas informadas, separadas por espaço. Atua com AND em relação aos demais filtros.",
                 required=False,
+                examples=[
+                    OpenApiExample(
+                        "Duas etiquetas",
+                        value="importante urgente",
+                    )
+                ],
             ),
             OpenApiParameter(
                 name="data_atualizacao",
@@ -91,6 +111,12 @@ class DocumentoViewSet(ModelViewSet):
                 location=OpenApiParameter.QUERY,
                 description="Filtra por data de atualização mínima (YYYY-MM-DD). Retorna documentos atualizados nesta data ou em datas posteriores.",
                 required=False,
+                examples=[
+                    OpenApiExample(
+                        "Data mínima",
+                        value="2026-01-31",
+                    )
+                ],
             ),
             OpenApiParameter(
                 name="setor",
@@ -98,6 +124,12 @@ class DocumentoViewSet(ModelViewSet):
                 location=OpenApiParameter.QUERY,
                 description="Filtra documentos pelo(s) setor(es) (ex: Técnico, Normativo, Judiciário e Qualitativo). Pode receber múltiplos setores separados por vírgula.",
                 required=False,
+                examples=[
+                    OpenApiExample(
+                        "Dois setores",
+                        value="Técnico, Judiciário",
+                    )
+                ],
             ),
             OpenApiParameter(
                 name="contexto",
@@ -105,6 +137,12 @@ class DocumentoViewSet(ModelViewSet):
                 location=OpenApiParameter.QUERY,
                 description="Busca documentos pelo contexto semântico. A busca agirá APENAS sobre os documentos que já passaram pelos filtros anteriores.",
                 required=False,
+                examples=[
+                    OpenApiExample(
+                        "Consulta semântica",
+                        value="política de segurança da informação",
+                    )
+                ],
             ),
             OpenApiParameter(
                 name="page",
