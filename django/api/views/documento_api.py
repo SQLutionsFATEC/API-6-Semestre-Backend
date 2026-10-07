@@ -7,13 +7,6 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
-from drf_spectacular.utils import (
-    OpenApiExample,
-    OpenApiParameter,
-    OpenApiResponse,
-    OpenApiTypes,
-    extend_schema,
-)
 
 from api.models import Documento
 from api.models import Etiqueta
@@ -28,6 +21,7 @@ from django.core.paginator import EmptyPage
 from django.db import transaction
 from rest_framework import serializers
 from django.db.models import Case, IntegerField, Q, When
+
 
 class DocumentoViewSet(ModelViewSet):
     queryset = Documento.objects.all()
