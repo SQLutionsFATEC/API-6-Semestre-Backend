@@ -4,6 +4,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 
 from api.models import Documento
@@ -12,6 +14,7 @@ from api.serializers import DocumentoSerializer
 from api.serializers import EtiquetaSerializer
 from api.services.ml_service import MLService
 from api.services.vector_service import VectorService
+from api.services.authorization_service import verificar_acesso
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
@@ -25,6 +28,7 @@ class DocumentoViewSet(ModelViewSet):
     serializer_class = DocumentoSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    permission_classes = [IsAuthenticated] 
 
     lookup_field = "id_documento"
 
@@ -67,6 +71,42 @@ class DocumentoViewSet(ModelViewSet):
             )
 
     # ========================================================
+    # GET /api/documentos/{id_documento}/
+    # Exibição com autorização (retorna 403 se não tiver permissão)
+    # ========================================================
+    @extend_schema(
+        description=(
+            "Retorna os detalhes de um documento. "
+            "Retorna 401 caso o usuário não esteja autenticado. "
+            "Retorna 403 caso o usuário não tenha permissão de acesso. "
+            "A autorização segue a regra: "
+            "(Setor Usuário == Setor Doc E Nível Usuário >= Nível Doc) OU Nível Usuário == Operador. "
+            "Caso o usuário não tenha setor/nível definidos, aplica-se o mock padrão (Tecnico / Basico)."
+        ),
+        responses={
+            200: OpenApiResponse(description="Documento retornado com sucesso."),
+            401: OpenApiResponse(description="Usuário não autenticado."),
+            403: OpenApiResponse(description="Usuário sem permissão de acesso ao documento."),
+            404: OpenApiResponse(description="Documento não encontrado."),
+        },
+    )
+    def retrieve(self, request, *args, **kwargs):
+        documento = self.get_object()
+
+        setor_usuario = getattr(request.user, 'setor', None)
+        nivel_usuario = getattr(request.user, 'nivel', None)
+
+        if not verificar_acesso(
+            setor_usuario, nivel_usuario, documento.setor, documento.nivel
+        ):
+            raise PermissionDenied(
+                "Você não tem permissão para acessar este documento."
+            )
+
+        serializer = self.get_serializer(documento)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&contexto={contexto}&page={numero da pagina}
     # Busca por nome, etiquetas ou contexto
     # ========================================================
@@ -102,9 +142,16 @@ class DocumentoViewSet(ModelViewSet):
                 default=1,
             ),
         ],
+        description=(
+            "Lista documentos paginados. A filtragem NÃO é afetada pelas permissões do usuário. "
+            "Cada documento inclui o campo 'acesso_permitido' (boolean) para o frontend saber "
+            "se o usuário tem acesso àquele documento. "
+            "Requer autenticação: retorna 401 caso o usuário não envie autenticação válida."
+        ),
         responses={
-            200: OpenApiResponse(description="Lista paginada de documentos."),
+            200: OpenApiResponse(description="Lista paginada de documentos com o campo 'acesso_permitido'."),
             400: OpenApiResponse(description="Número de página inválido."),
+            401: OpenApiResponse(description="Usuário não autenticado."),
             404: OpenApiResponse(description="Página solicitada inexistente."),
         },
     )
@@ -180,7 +227,7 @@ class DocumentoViewSet(ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = DocumentoSerializer(page, many=True)
+        serializer = DocumentoSerializer(page, many=True, context={'request': request})
         results = serializer.data
         for documento in results:
             documento.pop("data", None)
