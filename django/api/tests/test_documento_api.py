@@ -1,3 +1,6 @@
+from datetime import timedelta
+from unittest.mock import patch
+
 from django.test import TestCase
 from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
@@ -191,7 +194,6 @@ class DocumentoApiTest(TestCase):
     def test_criar_documento_com_sucesso_via_post(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
         import pymupdf
-        from unittest.mock import patch
 
         pdf = pymupdf.open()
         pdf.new_page()
@@ -223,7 +225,6 @@ class DocumentoApiTest(TestCase):
 
     def test_criar_documento_retorna_400_quando_processamento_falha(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
-        from unittest.mock import patch
 
         payload = {
             'tipo_arquivo': 'pdf',
@@ -260,8 +261,6 @@ class DocumentoApiTest(TestCase):
         self.assertIn('detail', response.json())
 
     def test_pesquisa_documentos_retorna_os_cinco_trechos_mais_proximos(self):
-        from unittest.mock import patch
-
         resultados = [
             {'id_chunk': indice, 'id_documento_id': self.documento.id_documento}
             for indice in range(5)
@@ -282,8 +281,6 @@ class DocumentoApiTest(TestCase):
         buscar_contexto.assert_called_once_with('segurança de redes', limite=5)
 
     def test_pesquisa_documentos_ignora_contexto_vazio(self):
-        from unittest.mock import patch
-
         with patch(
                 'api.views.documento_api.VectorService.buscar_contexto'
         ) as buscar_contexto:
@@ -341,7 +338,7 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(len(response.json()['results']), 1)
         self.assertEqual(response.json()['results'][0]['nome'], 'Manual.pdf')
 
-    def test_lista_documentos_filtrando_por_nome_ou_etiqueta(self):
+    def test_lista_documentos_combina_nome_e_etiqueta_com_and(self):
         self.documento.etiquetas.add(self.etiqueta)
 
         Documento.objects.create(
@@ -355,11 +352,21 @@ class DocumentoApiTest(TestCase):
         response = self.client.get('/api/documentos/?nome=Manual&etiquetas=Importante')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()['results']), 2)
+        resultados = response.json()['results']
+        self.assertEqual(len(resultados), 1)
+        self.assertEqual(resultados[0]['nome'], 'Manual.pdf')
 
     def test_lista_documentos_filtrando_por_multiplas_etiquetas(self):
         etiqueta2 = Etiqueta.objects.create(nome='Urgente')
         self.documento.etiquetas.add(self.etiqueta, etiqueta2)
+        outro_documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Documento Urgente.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/urgente.pdf',
+        )
+        outro_documento.etiquetas.add(etiqueta2)
 
         response = self.client.get('/api/documentos/?etiquetas=importante%20urgente')
 
