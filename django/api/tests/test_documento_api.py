@@ -1,4 +1,8 @@
+from datetime import timedelta
+from unittest.mock import patch
+
 from django.test import TestCase
+from django.utils import timezone
 
 from api.models import Documento, Etiqueta
 
@@ -176,7 +180,6 @@ class DocumentoApiTest(TestCase):
     def test_criar_documento_com_sucesso_via_post(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
         import pymupdf
-        from unittest.mock import patch
 
         pdf = pymupdf.open()
         pdf.new_page()
@@ -208,7 +211,6 @@ class DocumentoApiTest(TestCase):
 
     def test_criar_documento_retorna_400_quando_processamento_falha(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
-        from unittest.mock import patch
 
         payload = {
             'tipo_arquivo': 'pdf',
@@ -245,8 +247,6 @@ class DocumentoApiTest(TestCase):
         self.assertIn('detail', response.json())
 
     def test_pesquisa_documentos_retorna_os_cinco_trechos_mais_proximos(self):
-        from unittest.mock import patch
-
         resultados = [
             {'id_chunk': indice, 'id_documento_id': self.documento.id_documento}
             for indice in range(5)
@@ -267,8 +267,6 @@ class DocumentoApiTest(TestCase):
         buscar_contexto.assert_called_once_with('segurança de redes', limite=5)
 
     def test_pesquisa_documentos_ignora_contexto_vazio(self):
-        from unittest.mock import patch
-
         with patch(
                 'api.views.documento_api.VectorService.buscar_contexto'
         ) as buscar_contexto:
@@ -326,7 +324,7 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(len(response.json()['results']), 1)
         self.assertEqual(response.json()['results'][0]['nome'], 'Manual.pdf')
 
-    def test_lista_documentos_filtrando_por_nome_ou_etiqueta(self):
+    def test_lista_documentos_combina_nome_e_etiqueta_com_and(self):
         self.documento.etiquetas.add(self.etiqueta)
 
         Documento.objects.create(
@@ -340,14 +338,208 @@ class DocumentoApiTest(TestCase):
         response = self.client.get('/api/documentos/?nome=Manual&etiquetas=Importante')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()['results']), 2)
+        resultados = response.json()['results']
+        self.assertEqual(len(resultados), 1)
+        self.assertEqual(resultados[0]['nome'], 'Manual.pdf')
 
     def test_lista_documentos_filtrando_por_multiplas_etiquetas(self):
         etiqueta2 = Etiqueta.objects.create(nome='Urgente')
         self.documento.etiquetas.add(self.etiqueta, etiqueta2)
+        outro_documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Documento Urgente.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/urgente.pdf',
+        )
+        outro_documento.etiquetas.add(etiqueta2)
 
         response = self.client.get('/api/documentos/?etiquetas=importante%20urgente')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.json()['results']), 1)
-        self.assertEqual(response.json()['results'][0]['nome'], 'Manual.pdf')
+        resultados = response.json()['results']
+        self.assertEqual(len(resultados), 2)
+        self.assertEqual(
+            {resultado['nome'] for resultado in resultados},
+            {'Manual.pdf', 'Documento Urgente.pdf'},
+        )
+
+    def test_lista_documentos_filtra_setores_com_or(self):
+        documento_financeiro = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Relatorio Financeiro.pdf',
+            setor='Financeiro',
+            nivel='Público',
+            data='documentos/financeiro.pdf',
+        )
+        documento_juridico = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Parecer Juridico.pdf',
+            setor='Judiciário',
+            nivel='Público',
+            data='documentos/juridico.pdf',
+        )
+
+        response = self.client.get(
+            '/api/documentos/',
+            {'setor': 'Financeiro, Judiciário'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {resultado['id_documento'] for resultado in response.json()['results']},
+            {documento_financeiro.id_documento, documento_juridico.id_documento},
+        )
+
+    def test_lista_documentos_aplica_filtros_de_metadados_com_and(self):
+        documento_correspondente = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Relatorio de Auditoria.pdf',
+            setor='Financeiro',
+            nivel='Público',
+            data='documentos/auditoria.pdf',
+        )
+        documento_nome_diferente = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Contrato de Auditoria.pdf',
+            setor='Financeiro',
+            nivel='Público',
+            data='documentos/contrato.pdf',
+        )
+        documento_setor_diferente = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Relatorio de Auditoria Tecnica.pdf',
+            setor='Tecnico',
+            nivel='Público',
+            data='documentos/tecnico.pdf',
+        )
+        etiqueta_auditoria = Etiqueta.objects.create(nome='Auditoria')
+        documento_correspondente.etiquetas.add(etiqueta_auditoria)
+        documento_nome_diferente.etiquetas.add(etiqueta_auditoria)
+        documento_setor_diferente.etiquetas.add(etiqueta_auditoria)
+
+        response = self.client.get(
+            '/api/documentos/',
+            {
+                'nome': 'Relatorio',
+                'etiquetas': 'Auditoria',
+                'setor': 'Financeiro',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        resultados = response.json()['results']
+        self.assertEqual(len(resultados), 1)
+        self.assertEqual(
+            resultados[0]['id_documento'],
+            documento_correspondente.id_documento,
+        )
+
+    def test_lista_documentos_filtra_data_atualizacao_minima(self):
+        documento_antigo = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Documento Antigo.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/antigo.pdf',
+        )
+        documento_novo = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Documento Novo.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/novo.pdf',
+        )
+        data_corte = timezone.now() - timedelta(days=1)
+        Documento.objects.filter(id_documento=documento_antigo.id_documento).update(
+            data_atualizacao=data_corte - timedelta(days=1),
+        )
+        Documento.objects.filter(id_documento=documento_novo.id_documento).update(
+            data_atualizacao=data_corte + timedelta(days=1),
+        )
+
+        response = self.client.get(
+            '/api/documentos/',
+            {'data_atualizacao': data_corte.date().isoformat()},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        resultados = response.json()['results']
+        self.assertEqual(len(resultados), 2)
+        self.assertEqual(
+            {resultado['id_documento'] for resultado in resultados},
+            {self.documento.id_documento, documento_novo.id_documento},
+        )
+
+    def test_pesquisa_por_contexto_restringe_resultados_aos_filtros_anteriores(self):
+        documento_filtrado = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Documento Filtrado.pdf',
+            setor='Financeiro',
+            nivel='Público',
+            data='documentos/filtrado.pdf',
+        )
+        documento_fora_do_filtro = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Documento Fora.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/fora.pdf',
+        )
+        resultados_contexto = [
+            {'id_documento_id': documento_fora_do_filtro.id_documento},
+            {'id_documento_id': documento_filtrado.id_documento},
+        ]
+
+        with patch(
+            'api.views.documento_api.VectorService.buscar_contexto',
+            return_value=resultados_contexto,
+        ) as buscar_contexto:
+            response = self.client.get(
+                '/api/documentos/',
+                {'setor': 'Financeiro', 'contexto': 'auditoria'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        resultados = response.json()['results']
+        self.assertEqual(len(resultados), 1)
+        self.assertEqual(
+            resultados[0]['id_documento'],
+            documento_filtrado.id_documento,
+        )
+        buscar_contexto.assert_called_once_with('auditoria', limite=5)
+
+    def test_pesquisa_por_contexto_preserva_ordem_dos_documentos_encontrados(self):
+        primeiro = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Primeiro.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/primeiro.pdf',
+        )
+        segundo = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Segundo.pdf',
+            setor='TI',
+            nivel='Público',
+            data='documentos/segundo.pdf',
+        )
+
+        with patch(
+            'api.views.documento_api.VectorService.buscar_contexto',
+            return_value=[
+                {'id_documento_id': segundo.id_documento},
+                {'id_documento_id': primeiro.id_documento},
+                {'id_documento_id': segundo.id_documento},
+            ],
+        ):
+            response = self.client.get(
+                '/api/documentos/',
+                {'contexto': 'ordem de relevancia'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [resultado['id_documento'] for resultado in response.json()['results']],
+            [segundo.id_documento, primeiro.id_documento],
+        )
