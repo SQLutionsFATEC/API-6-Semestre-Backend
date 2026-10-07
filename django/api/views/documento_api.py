@@ -113,9 +113,6 @@ class DocumentoViewSet(ModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     # ========================================================
-    # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&contexto={contexto}&page={numero da pagina}
-    # Busca por nome, etiquetas ou contexto
-# ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&data_atualizacao={data_atualizacao}&setor={setor}&contexto={contexto}&page={numero da pagina}
     # Busca combinada utilizando lógica AND para metadados e filtragem de contexto final
     # ========================================================
@@ -126,7 +123,11 @@ class DocumentoViewSet(ModelViewSet):
             "data_atualizacao e setor são combinados com lógica AND. "
             "Múltiplas etiquetas são separadas por espaço e múltiplos setores "
             "por vírgula. O filtro contexto executa busca semântica somente "
-            "sobre os documentos aprovados pelos filtros anteriores."
+            "sobre os documentos aprovados pelos filtros anteriores. "
+            "A filtragem NÃO é afetada pelas permissões do usuário. "
+            "Cada documento inclui o campo 'acesso_permitido' (boolean) para o frontend "
+            "saber se o usuário tem acesso àquele documento. "
+            "Requer autenticação: retorna 401 caso o usuário não envie autenticação válida."
         ),
         parameters=[
             OpenApiParameter(
@@ -197,12 +198,6 @@ class DocumentoViewSet(ModelViewSet):
                 default=1,
             ),
         ],
-        description=(
-            "Lista documentos paginados. A filtragem NÃO é afetada pelas permissões do usuário. "
-            "Cada documento inclui o campo 'acesso_permitido' (boolean) para o frontend saber "
-            "se o usuário tem acesso àquele documento. "
-            "Requer autenticação: retorna 401 caso o usuário não envie autenticação válida."
-        ),
         responses={
             200: OpenApiResponse(description="Lista paginada de documentos com o campo 'acesso_permitido'."),
             400: OpenApiResponse(description="Número de página inválido."),
@@ -283,7 +278,7 @@ class DocumentoViewSet(ModelViewSet):
                 {"erro": "page deve ser um número inteiro positivo."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-            
+
         if page_number < 1:
             return Response(
                 {"erro": "page deve ser um número inteiro positivo."},
@@ -293,7 +288,7 @@ class DocumentoViewSet(ModelViewSet):
         paginator = PageNumberPagination()
         paginator.page_size = 10
         paginator.page_query_param = "page"
-        
+
         try:
             page = paginator.paginate_queryset(queryset, request, view=self)
         except EmptyPage:
@@ -304,7 +299,7 @@ class DocumentoViewSet(ModelViewSet):
 
         serializer = DocumentoSerializer(page, many=True, context={'request': request})
         results = serializer.data
-        
+
         for documento in results:
             documento.pop("data", None)
 
