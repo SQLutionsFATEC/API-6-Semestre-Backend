@@ -29,13 +29,12 @@ from django.db import transaction
 from rest_framework import serializers
 from django.db.models import Case, IntegerField, Q, When
 
-
 class DocumentoViewSet(ModelViewSet):
     queryset = Documento.objects.all()
     serializer_class = DocumentoSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    permission_classes = [IsAuthenticated] 
+    permission_classes = [IsAuthenticated]
 
     lookup_field = "id_documento"
 

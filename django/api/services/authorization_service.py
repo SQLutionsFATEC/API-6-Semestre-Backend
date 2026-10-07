@@ -6,7 +6,7 @@ NIVEL_HIERARQUIA = {
     'Operador': 4,
 }
 
-# Valores padrão (mock) 
+# Valores padrão (mock)
 SETOR_PADRAO = 'Tecnico'
 NIVEL_PADRAO = 'Basico'
 
