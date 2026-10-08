@@ -141,7 +141,7 @@ class DocumentoViewSet(ModelViewSet):
                 name="etiquetas",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Filtra documentos por qualquer uma das etiquetas informadas, separadas por espaço. Atua com AND em relação aos demais filtros.",
+                description="Filtra documentos por TODAS as etiquetas informadas (lógica AND), separadas por espaço. Atua com AND em relação aos demais filtros.",
                 required=False,
                 examples=[
                     OpenApiExample(
@@ -221,10 +221,8 @@ class DocumentoViewSet(ModelViewSet):
 
         if etiquetas:
             palavras_etiquetas = etiquetas.split()
-            q_etiquetas = Q()
             for palavra in palavras_etiquetas:
-                q_etiquetas |= Q(etiquetas__nome__icontains=palavra)
-            queryset = queryset.filter(q_etiquetas)
+                queryset = queryset.filter(etiquetas__nome__icontains=palavra)
 
         if data_atualizacao:
             queryset = queryset.filter(data_atualizacao__gte=data_atualizacao)
