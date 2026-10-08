@@ -14,7 +14,7 @@ from drf_spectacular.utils import (
 
 from api.models import Documento
 from api.models import Etiqueta
-from api.serializers import DocumentoSerializer
+from api.serializers import DocumentoSerializer, DocumentoUpdateSerializer
 from api.serializers import EtiquetaSerializer
 from api.services.ml_service import MLService
 from api.services.vector_service import VectorService
@@ -40,6 +40,33 @@ class DocumentoViewSet(ModelViewSet):
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Atualiza atributos de um documento",
+        description=(
+            "Atualiza parcialmente os atributos do documento. Cada campo enviado "
+            "substitui seu valor atual; ao enviar etiquetas, informe a lista "
+            "completa de IDs que devem permanecer vinculados. O arquivo (data) "
+            "e data_atualizacao não podem ser editados."
+        ),
+        request=DocumentoUpdateSerializer,
+        responses={
+            204: OpenApiResponse(description="Documento atualizado com sucesso."),
+            400: OpenApiResponse(description="Dados inválidos ou campo protegido."),
+            404: OpenApiResponse(description="Documento não encontrado."),
+        },
+    )
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = DocumentoUpdateSerializer(
+            instance,
+            data=request.data,
+            partial=True,
+            context=self.get_serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ========================================================
     # Executado automaticamente no POST /api/documentos/
