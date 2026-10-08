@@ -46,21 +46,26 @@ class DocumentoViewSet(ModelViewSet):
     # ========================================================
     def perform_create(self, serializer):
         try:
-            # O transaction.atomic garante que, se qualquer coisa falhar aqui dentro,
-            # NADA será salvo no banco de dados (faz o rollback automático do serializer.save())
             with transaction.atomic():
-                # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
                 documento = serializer.save()
-
-                # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
                 caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
-                tag_predita = MLService.classificar_documento(caminho_pdf)
 
-                # 3. Obtém ou cria a etiqueta e vincula ao documento
-                etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
-                documento.etiquetas.add(etiqueta)
+                nomes_etiquetas = set()
+                for nome in serializer.validated_data.get('etiquetas', []):
+                    if nome and nome.strip():
+                        nomes_etiquetas.add(nome.strip())
 
-                # 4. Processa no VectorService (Se falhar aqui, o banco desfaz o passo 1 e 3)
+                setor = (serializer.validated_data.get('setor') or '').strip()
+                if setor:
+                    nomes_etiquetas.add(setor)
+                else:
+                    tag_predita = MLService.classificar_documento(caminho_pdf)
+                    nomes_etiquetas.add(tag_predita)
+
+                for nome_etiqueta in sorted(nomes_etiquetas):
+                    etiqueta, _ = Etiqueta.objects.get_or_create(nome=nome_etiqueta)
+                    documento.etiquetas.add(etiqueta)
+
                 VectorService.processar_documento(documento, caminho_pdf)
 
         except Exception as e:
@@ -161,7 +166,6 @@ class DocumentoViewSet(ModelViewSet):
         },
     )
     def list(self, request, *args, **kwargs):
-        # 1. Recuperar parâmetros da requisição
         nome = request.query_params.get("nome")
         etiquetas = request.query_params.get("etiquetas")
         data_atualizacao = request.query_params.get("data_atualizacao")
@@ -170,7 +174,6 @@ class DocumentoViewSet(ModelViewSet):
 
         queryset = self.get_queryset()
 
-        # 2. Aplicar Filtros Exatos (Lógica AND encadeada)
         if nome:
             queryset = queryset.filter(nome__icontains=nome)
 
@@ -191,7 +194,6 @@ class DocumentoViewSet(ModelViewSet):
                 q_setores |= Q(setor__icontains=s)
             queryset = queryset.filter(q_setores)
 
-        # 3. Aplicar Pesquisa por Contexto (apenas nos documentos que restarem)
         ids_documentos_contexto = None
         if contexto:
             contexto = contexto.strip()
@@ -204,14 +206,10 @@ class DocumentoViewSet(ModelViewSet):
                     dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
                 )
 
-                # A intersecção garante que o vetor só traga documentos que
-                # sobreviveram aos filtros exatos acima
                 queryset = queryset.filter(id_documento__in=ids_documentos_contexto)
 
-        # O uso de campos M2M (como etiquetas) nas buscas pode duplicar resultados; apply distinct()
         queryset = queryset.distinct()
 
-        # 4. Ordenação
         if ids_documentos_contexto:
             ordem_contexto = Case(
                 *[
@@ -225,7 +223,6 @@ class DocumentoViewSet(ModelViewSet):
         else:
             queryset = queryset.order_by("id_documento")
 
-        # 5. Paginação
         try:
             page_number = int(request.query_params.get("page", 1))
         except (TypeError, ValueError):
@@ -252,7 +249,6 @@ class DocumentoViewSet(ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # 6. Serialização e Retorno
         serializer = DocumentoSerializer(page, many=True)
         results = serializer.data
         
