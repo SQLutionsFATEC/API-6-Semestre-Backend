@@ -209,6 +209,39 @@ class DocumentoApiTest(TestCase):
         self.assertIn('id_documento', response.json())
         self.assertTrue(Etiqueta.objects.filter(nome="NAO_CLASSIFICADO").exists())
 
+    def test_criar_documento_com_setor_informado_nao_classifica_automaticamente(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        import pymupdf
+
+        pdf = pymupdf.open()
+        pdf.new_page()
+        arquivo_pdf = SimpleUploadedFile(
+            "setor.pdf",
+            pdf.tobytes(),
+            content_type="application/pdf",
+        )
+        pdf.close()
+        payload = {
+            'tipo_arquivo': 'pdf',
+            'nome': 'Documento com setor.pdf',
+            'setor': 'Financeiro',
+            'nivel': 'Interno',
+            'data': arquivo_pdf,
+        }
+
+        with patch(
+            'api.views.documento_api.MLService.classificar_documento',
+        ) as mock_classificar, patch(
+            'api.views.documento_api.VectorService.processar_documento',
+            return_value=0,
+        ):
+            response = self.client.post('/api/documentos/', data=payload)
+
+        self.assertEqual(response.status_code, 201)
+        mock_classificar.assert_not_called()
+        documento = Documento.objects.get(id_documento=response.json()['id_documento'])
+        self.assertTrue(documento.etiquetas.filter(nome='Financeiro').exists())
+
     def test_criar_documento_retorna_400_quando_processamento_falha(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
