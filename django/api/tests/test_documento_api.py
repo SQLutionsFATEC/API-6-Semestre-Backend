@@ -30,6 +30,7 @@ class DocumentoApiTest(TestCase):
             'tipo_arquivo': 'pdf',
             'nome': 'Manual.pdf',
             'setor': 'TI',
+            'data_criacao': self.documento.data_criacao.isoformat().replace('+00:00', 'Z'),
             'data_atualizacao': self.documento.data_atualizacao.isoformat().replace('+00:00', 'Z'),
             'nivel': 'Público',
             'data': 'http://testserver/media/documentos/manual.pdf',
@@ -163,7 +164,7 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()['erro'], 'Etiqueta não encontrada.')
 
-    def test_rejeita_upload_de_arquivo_que_nao_seja_pdf(self):
+    def test_rejeita_upload_de_formato_nao_permitido(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
         arquivo_png = SimpleUploadedFile("imagem.png", b"conteudo_fake", content_type="image/png")
         payload = {
@@ -176,6 +177,14 @@ class DocumentoApiTest(TestCase):
         response = self.client.post('/api/documentos/', data=payload)
         self.assertEqual(response.status_code, 400)
         self.assertIn('data', response.json())
+
+    def test_data_criacao_permanece_inalterada_apos_atualizacao(self):
+        data_criacao = self.documento.data_criacao
+        self.documento.nome = 'Manual atualizado.pdf'
+        self.documento.save()
+        self.documento.refresh_from_db()
+
+        self.assertEqual(self.documento.data_criacao, data_criacao)
 
     def test_criar_documento_com_sucesso_via_post(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -198,8 +207,7 @@ class DocumentoApiTest(TestCase):
         }
         with patch(
             'api.views.documento_api.MLService.classificar_documento',
-            return_value='NAO_CLASSIFICADO',
-        ), patch(
+        ) as mock_classificar, patch(
             'api.views.documento_api.VectorService.processar_documento',
             return_value=0,
         ):
@@ -207,7 +215,92 @@ class DocumentoApiTest(TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertIn('id_documento', response.json())
-        self.assertTrue(Etiqueta.objects.filter(nome="NAO_CLASSIFICADO").exists())
+        mock_classificar.assert_not_called()
+        documento = Documento.objects.get(id_documento=response.json()['id_documento'])
+        self.assertEqual(documento.setor, 'TI')
+        self.assertTrue(documento.etiquetas.filter(nome='TI').exists())
+
+    def test_criar_documento_sem_setor_classifica_e_persiste_categoria(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        import pymupdf
+
+        pdf = pymupdf.open()
+        pdf.new_page()
+        arquivo_pdf = SimpleUploadedFile(
+            'classificar.pdf', pdf.tobytes(), content_type='application/pdf'
+        )
+        pdf.close()
+        payload = {
+            'nome': 'Documento classificado.pdf',
+            'nivel': 'Interno',
+            'etiquetas': ['urgente'],
+            'data': arquivo_pdf,
+        }
+
+        with patch(
+            'api.views.documento_api.MLService.classificar_documento',
+            return_value='Normativo',
+        ) as mock_classificar, patch(
+            'api.views.documento_api.VectorService.processar_documento',
+            return_value=0,
+        ):
+            response = self.client.post('/api/documentos/', data=payload)
+
+        self.assertEqual(response.status_code, 201)
+        mock_classificar.assert_called_once()
+        documento = Documento.objects.get(id_documento=response.json()['id_documento'])
+        self.assertEqual(documento.setor, 'Normativo')
+        self.assertTrue(documento.etiquetas.filter(nome='Normativo').exists())
+        self.assertTrue(documento.etiquetas.filter(nome='urgente').exists())
+
+    def test_criar_documento_docx_informa_tipo_automaticamente(self):
+        from io import BytesIO
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from docx import Document as WordDocument
+
+        conteudo = BytesIO()
+        documento_word = WordDocument()
+        documento_word.add_paragraph('Conteúdo do documento Word.')
+        documento_word.save(conteudo)
+        arquivo_docx = SimpleUploadedFile(
+            'manual.docx',
+            conteudo.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+        payload = {
+            'nome': 'Manual Word',
+            'setor': 'TI',
+            'nivel': 'Público',
+            'data': arquivo_docx,
+        }
+
+        with patch(
+            'api.views.documento_api.VectorService.processar_documento',
+            return_value=0,
+        ):
+            response = self.client.post('/api/documentos/', data=payload)
+
+        self.assertEqual(response.status_code, 201)
+        documento = Documento.objects.get(id_documento=response.json()['id_documento'])
+        self.assertEqual(documento.tipo_arquivo, 'docx')
+
+    def test_criar_documento_rejeita_nome_ou_nivel_ausente(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        for campo in ('nome', 'nivel'):
+            payload = {
+                'tipo_arquivo': 'pdf',
+                'nome': 'Obrigatorio.pdf',
+                'setor': 'TI',
+                'nivel': 'Interno',
+                'data': SimpleUploadedFile('obrigatorio.pdf', b'%PDF-1.7'),
+            }
+            payload.pop(campo)
+
+            response = self.client.post('/api/documentos/', data=payload)
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(campo, response.json())
 
     def test_criar_documento_com_setor_informado_nao_classifica_automaticamente(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
