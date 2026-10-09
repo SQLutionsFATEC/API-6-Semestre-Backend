@@ -60,6 +60,94 @@ class DocumentoApiTest(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_atualiza_nome_com_patch_e_retorna_204(self):
+        data_anterior = timezone.now() - timedelta(days=1)
+        Documento.objects.filter(id_documento=self.documento.id_documento).update(
+            data_atualizacao=data_anterior,
+        )
+
+        response = self.client.patch(
+            f'/api/documentos/{self.documento.id_documento}/',
+            data={'nome': 'Manual atualizado.pdf'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.content, b'')
+        self.documento.refresh_from_db()
+        self.assertEqual(self.documento.nome, 'Manual atualizado.pdf')
+        self.assertGreater(self.documento.data_atualizacao, data_anterior)
+
+    def test_rejeita_atualizacao_do_arquivo(self):
+        response = self.client.patch(
+            f'/api/documentos/{self.documento.id_documento}/',
+            data={'data': 'documentos/outro.pdf'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('data', response.json())
+
+    def test_rejeita_atualizacao_da_data_de_atualizacao(self):
+        response = self.client.patch(
+            f'/api/documentos/{self.documento.id_documento}/',
+            data={'data_atualizacao': '2026-01-01T00:00:00Z'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('data_atualizacao', response.json())
+
+    def test_atualiza_setor_e_nivel_com_valores_validos(self):
+        response = self.client.patch(
+            f'/api/documentos/{self.documento.id_documento}/',
+            data={'setor': 'normativo', 'nivel': 'militar'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.documento.refresh_from_db()
+        self.assertEqual(self.documento.setor, 'normativo')
+        self.assertEqual(self.documento.nivel, 'militar')
+
+    def test_rejeita_setor_e_nivel_inexistentes(self):
+        response = self.client.patch(
+            f'/api/documentos/{self.documento.id_documento}/',
+            data={'setor': 'inexistente', 'nivel': 'inexistente'},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('setor', response.json())
+        self.assertIn('nivel', response.json())
+
+    def test_substitui_lista_completa_de_etiquetas(self):
+        etiqueta2 = Etiqueta.objects.create(nome='Urgente')
+        etiqueta3 = Etiqueta.objects.create(nome='Revisar')
+        self.documento.etiquetas.add(self.etiqueta, etiqueta2)
+
+        response = self.client.patch(
+            f'/api/documentos/{self.documento.id_documento}/',
+            data={'etiquetas': [etiqueta2.id_etiqueta, etiqueta3.id_etiqueta]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            set(self.documento.etiquetas.values_list('id_etiqueta', flat=True)),
+            {etiqueta2.id_etiqueta, etiqueta3.id_etiqueta},
+        )
+
+    def test_rejeita_etiqueta_inexistente(self):
+        response = self.client.patch(
+            f'/api/documentos/{self.documento.id_documento}/',
+            data={'etiquetas': [999999]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('etiquetas', response.json())
+
     def test_retorna_200_ao_listar_documentos(self):
         response = self.client.get('/api/documentos/')
 
