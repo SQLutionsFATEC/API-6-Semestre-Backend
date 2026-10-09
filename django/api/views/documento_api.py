@@ -35,8 +35,12 @@ class DocumentoViewSet(ModelViewSet):
     lookup_field = "id_documento"
 
     @extend_schema(
-        request=DocumentoSerializer,
-        description="Cria um documento. O campo data deve ser enviado como arquivo.",
+        request={'multipart/form-data': DocumentoSerializer},
+        description=(
+            "Cria um documento com nome e nível obrigatórios. Envie um arquivo PDF ou DOCX "
+            "no campo data. O setor pode ser informado; se omitido, será classificado "
+            "automaticamente e salvo no documento. Etiquetas adicionais são opcionais."
+        ),
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
@@ -48,25 +52,31 @@ class DocumentoViewSet(ModelViewSet):
         try:
             with transaction.atomic():
                 documento = serializer.save()
-                caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
+                caminho_arquivo = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
+
+                setor = (serializer.validated_data.get('setor') or '').strip()
+                if not setor:
+                    setor = (MLService.classificar_documento(caminho_arquivo) or '').strip()
+                    if not setor:
+                        raise serializers.ValidationError(
+                            {'setor': 'Não foi possível classificar o documento.'}
+                        )
+                    documento.setor = setor
+                    documento.save(update_fields=['setor'])
 
                 nomes_etiquetas = set()
                 for nome in serializer.validated_data.get('etiquetas', []):
                     if nome and nome.strip():
                         nomes_etiquetas.add(nome.strip())
 
-                setor = (serializer.validated_data.get('setor') or '').strip()
                 if setor:
                     nomes_etiquetas.add(setor)
-                else:
-                    tag_predita = MLService.classificar_documento(caminho_pdf)
-                    nomes_etiquetas.add(tag_predita)
 
                 for nome_etiqueta in sorted(nomes_etiquetas):
                     etiqueta, _ = Etiqueta.objects.get_or_create(nome=nome_etiqueta)
                     documento.etiquetas.add(etiqueta)
 
-                VectorService.processar_documento(documento, caminho_pdf)
+                VectorService.processar_documento(documento, caminho_arquivo)
 
         except Exception as e:
             # Atenção: O banco de dados já fez o rollback neste ponto.
