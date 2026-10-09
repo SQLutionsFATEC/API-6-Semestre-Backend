@@ -148,20 +148,20 @@ Para uma rota que recebe arquivo, declare `multipart/form-data` e use um seriali
 
 O serializer deve definir o nome, o tipo e a obrigatoriedade do arquivo. A documentação não deve afirmar que o arquivo é opcional se a view rejeita requisições sem ele.
 
-No upload de documentos, os campos obrigatórios são `nome`, `setor` e `nivel`. O campo `etiquetas` é opcional e pode receber uma lista de strings. Quando `setor` é informado no payload, o servidor usa esse valor como categoria/etiqueta do documento sem chamar a classificação automática. Quando `setor` não é informado, a API deve tentar classificar o documento por IA e registrar a etiqueta resultante.
+No upload de documentos, `nome` e `nivel` são obrigatórios. O arquivo (`data`) deve ser PDF ou DOCX válido; `tipo_arquivo` é inferido pela extensão, mas, se enviado, deve corresponder ao arquivo. `setor` pode ser informado pelo operador ou omitido para classificação automática. Em ambos os casos, o setor final é persistido no documento e também associado como etiqueta. O campo `etiquetas` é opcional e recebe uma lista de strings.
 
 Exemplo de payload valido:
 
 ```json
 {
   "nome": "Política de Segurança.pdf",
-  "setor": "Normativo",
   "nivel": "Restrito",
-  "tipo_arquivo": "pdf",
   "etiquetas": ["segurança", "interno"],
   "data": "arquivo.pdf"
 }
 ```
+
+O registro expõe `data_criacao`, preenchida uma única vez, e `data_atualizacao`, atualizada a cada salvamento.
 
 ## 8. Convenções do projeto
 
