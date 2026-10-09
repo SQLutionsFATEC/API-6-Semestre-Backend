@@ -178,7 +178,20 @@ class MLService:
             return "NAO_CLASSIFICADO"
 
         # 1. Extrai o texto
-        texto = cls.extrair_texto_pdf(str(caminho))
+        if caminho.suffix.lower() == '.docx':
+            from docx import Document as WordDocument
+
+            documento_word = WordDocument(str(caminho))
+            partes = [paragrafo.text for paragrafo in documento_word.paragraphs]
+            partes.extend(
+                celula.text
+                for tabela in documento_word.tables
+                for linha in tabela.rows
+                for celula in linha.cells
+            )
+            texto = '\n'.join(parte for parte in partes if parte)
+        else:
+            texto = cls.extrair_texto_pdf(str(caminho))
 
         # Caso 1: nenhum texto foi extraído
         if len(texto.strip()) == 0:
