@@ -14,7 +14,7 @@ def validar_arquivo_documento(value):
     extensao = os.path.splitext(value.name)[1].lower()
     if extensao not in TIPOS_ARQUIVO_PERMITIDOS:
         raise serializers.ValidationError(
-            "Apenas arquivos PDF (.pdf) ou Word (.docx) são permitidos."
+            "Apenas arquivos PDF ou Word são permitidos (extensões .pdf e .docx)."
         )
 
     try:

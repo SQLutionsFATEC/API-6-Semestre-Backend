@@ -35,6 +35,10 @@ class DocumentoSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ('data_criacao', 'data_atualizacao')
 
+    def create(self, validated_data):
+        validated_data.pop('etiquetas', None)
+        return super().create(validated_data)
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
 
