@@ -39,8 +39,12 @@ class DocumentoViewSet(ModelViewSet):
     lookup_field = "id_documento"
 
     @extend_schema(
-        request=DocumentoSerializer,
-        description="Cria um documento. O campo data deve ser enviado como arquivo.",
+        request={'multipart/form-data': DocumentoSerializer},
+        description=(
+            "Cria um documento com nome e nível obrigatórios. Envie um arquivo PDF ou DOCX "
+            "no campo data. O setor pode ser informado; se omitido, será classificado "
+            "automaticamente e salvo no documento. Etiquetas adicionais são opcionais."
+        ),
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
@@ -50,22 +54,33 @@ class DocumentoViewSet(ModelViewSet):
     # ========================================================
     def perform_create(self, serializer):
         try:
-            # O transaction.atomic garante que, se qualquer coisa falhar aqui dentro,
-            # NADA será salvo no banco de dados (faz o rollback automático do serializer.save())
             with transaction.atomic():
-                # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
                 documento = serializer.save()
+                caminho_arquivo = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
 
-                # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
-                caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
-                tag_predita = MLService.classificar_documento(caminho_pdf)
+                setor = (serializer.validated_data.get('setor') or '').strip()
+                if not setor:
+                    setor = (MLService.classificar_documento(caminho_arquivo) or '').strip()
+                    if not setor:
+                        raise serializers.ValidationError(
+                            {'setor': 'Não foi possível classificar o documento.'}
+                        )
+                    documento.setor = setor
+                    documento.save(update_fields=['setor'])
 
-                # 3. Obtém ou cria a etiqueta e vincula ao documento
-                etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
-                documento.etiquetas.add(etiqueta)
+                nomes_etiquetas = set()
+                for nome in serializer.validated_data.get('etiquetas', []):
+                    if nome and nome.strip():
+                        nomes_etiquetas.add(nome.strip())
 
-                # 4. Processa no VectorService (Se falhar aqui, o banco desfaz o passo 1 e 3)
-                VectorService.processar_documento(documento, caminho_pdf)
+                if setor:
+                    nomes_etiquetas.add(setor)
+
+                for nome_etiqueta in sorted(nomes_etiquetas):
+                    etiqueta, _ = Etiqueta.objects.get_or_create(nome=nome_etiqueta)
+                    documento.etiquetas.add(etiqueta)
+
+                VectorService.processar_documento(documento, caminho_arquivo)
 
         except Exception as e:
             # Atenção: O banco de dados já fez o rollback neste ponto.
@@ -206,7 +221,6 @@ class DocumentoViewSet(ModelViewSet):
         },
     )
     def list(self, request, *args, **kwargs):
-        # 1. Recuperar parâmetros da requisição
         nome = request.query_params.get("nome")
         etiquetas = request.query_params.get("etiquetas")
         data_atualizacao = request.query_params.get("data_atualizacao")
@@ -215,7 +229,6 @@ class DocumentoViewSet(ModelViewSet):
 
         queryset = self.get_queryset()
 
-        # 2. Aplicar Filtros Exatos (Lógica AND encadeada)
         if nome:
             queryset = queryset.filter(nome__icontains=nome)
 
@@ -234,7 +247,6 @@ class DocumentoViewSet(ModelViewSet):
                 q_setores |= Q(setor__icontains=s)
             queryset = queryset.filter(q_setores)
 
-        # 3. Aplicar Pesquisa por Contexto (apenas nos documentos que restarem)
         ids_documentos_contexto = None
         if contexto:
             contexto = contexto.strip()
@@ -247,14 +259,10 @@ class DocumentoViewSet(ModelViewSet):
                     dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
                 )
 
-                # A intersecção garante que o vetor só traga documentos que
-                # sobreviveram aos filtros exatos acima
                 queryset = queryset.filter(id_documento__in=ids_documentos_contexto)
 
-        # O uso de campos M2M (como etiquetas) nas buscas pode duplicar resultados; apply distinct()
         queryset = queryset.distinct()
 
-        # 4. Ordenação
         if ids_documentos_contexto:
             ordem_contexto = Case(
                 *[
@@ -268,7 +276,6 @@ class DocumentoViewSet(ModelViewSet):
         else:
             queryset = queryset.order_by("id_documento")
 
-        # 5. Paginação
         try:
             page_number = int(request.query_params.get("page", 1))
         except (TypeError, ValueError):

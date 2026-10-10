@@ -1,3 +1,3 @@
-from .documento_validator import validar_extensao_pdf, validar_tipo_arquivo_pdf
+from .documento_validator import validar_arquivo_documento, validar_tipo_arquivo
 
-__all__ = ['validar_extensao_pdf', 'validar_tipo_arquivo_pdf']
+__all__ = ['validar_arquivo_documento', 'validar_tipo_arquivo']
