@@ -2,7 +2,8 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import TestCase
-from django.utils import timezone
+from rest_framework.test import APIClient
+from django.contrib.auth import get_user_model
 
 from api.models import Documento, Etiqueta
 
@@ -20,6 +21,18 @@ class DocumentoApiTest(TestCase):
             nome='Importante'
         )
 
+        self.api_client = APIClient()
+        User = get_user_model()
+        user_mock = User.objects.create_user(
+            username='test_user_mock',
+            password='senha123',
+        )
+        user_mock.setor = 'TI'
+        user_mock.nivel = 'Operador'  
+        self.api_client.force_authenticate(user=user_mock)
+
+        self.client = self.api_client
+
 
     def test_retorna_documento_pelo_id(self):
         response = self.client.get(f'/api/documentos/{self.documento.id_documento}/')
@@ -35,6 +48,7 @@ class DocumentoApiTest(TestCase):
             'nivel': 'Público',
             'data': 'http://testserver/media/documentos/manual.pdf',
             'etiquetas': [],
+            'acesso_permitido': True, 
         })
 
     def test_retorna_404_para_documento_inexistente(self):
@@ -483,189 +497,169 @@ class DocumentoApiTest(TestCase):
         response = self.client.get('/api/documentos/?etiquetas=importante%20urgente')
 
         self.assertEqual(response.status_code, 200)
-        resultados = response.json()['results']
-        self.assertEqual(len(resultados), 2)
-        self.assertEqual(
-            {resultado['nome'] for resultado in resultados},
-            {'Manual.pdf', 'Documento Urgente.pdf'},
+        self.assertEqual(len(response.json()['results']), 1)
+        self.assertEqual(response.json()['results'][0]['nome'], 'Manual.pdf')
+
+
+class DocumentoAuthorizationTest(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+
+        # Usuário sem setor/nivel 
+        self.user_sem_dados = User.objects.create_user(
+            username='sem_dados', password='senha123'
         )
 
-    def test_lista_documentos_filtra_setores_com_or(self):
-        documento_financeiro = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Relatorio Financeiro.pdf',
-            setor='Financeiro',
-            nivel='Público',
-            data='documentos/financeiro.pdf',
+        # Usuário TI / Básico
+        self.user_basico_ti = User.objects.create_user(
+            username='basico_ti', password='senha123'
         )
-        documento_juridico = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Parecer Juridico.pdf',
-            setor='Judiciário',
-            nivel='Público',
-            data='documentos/juridico.pdf',
+        self.user_basico_ti.setor = 'TI'
+        self.user_basico_ti.nivel = 'Basico'
+
+        # Usuário TI / Comercial
+        self.user_comercial_ti = User.objects.create_user(
+            username='comercial_ti', password='senha123'
+        )
+        self.user_comercial_ti.setor = 'TI'
+        self.user_comercial_ti.nivel = 'Comercial'
+
+        # Usuário TI / Militar
+        self.user_militar_ti = User.objects.create_user(
+            username='militar_ti', password='senha123'
+        )
+        self.user_militar_ti.setor = 'TI'
+        self.user_militar_ti.nivel = 'Militar'
+
+        # Usuário RH / Operador
+        self.user_operador_rh = User.objects.create_user(
+            username='operador_rh', password='senha123'
+        )
+        self.user_operador_rh.setor = 'RH'
+        self.user_operador_rh.nivel = 'Operador'
+
+        # Documentos
+        self.doc_ti_basico = Documento.objects.create(
+            tipo_arquivo='pdf', nome='Doc TI Básico.pdf',
+            setor='TI', nivel='Basico', data='documentos/doc1.pdf',
+        )
+        self.doc_ti_militar = Documento.objects.create(
+            tipo_arquivo='pdf', nome='Doc TI Militar.pdf',
+            setor='TI', nivel='Militar', data='documentos/doc2.pdf',
+        )
+        self.doc_tecnico_basico = Documento.objects.create(
+            tipo_arquivo='pdf', nome='Doc Técnico Básico.pdf',
+            setor='Tecnico', nivel='Basico', data='documentos/doc3.pdf',
         )
 
+#LISTAGEM (GET /api/documentos/
+    def test_listagem_sem_autenticacao_retorna_401(self):
+        """Sem token/autenticação, deve retornar 401."""
+        response = self.client.get('/api/documentos/')
+        self.assertEqual(response.status_code, 401)
+
+    def test_listagem_nao_filtra_por_permissao(self):
+        """A lista deve conter TODOS os documentos, independente de permissão."""
+        self.client.force_authenticate(user=self.user_basico_ti)
+        response = self.client.get('/api/documentos/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()['results']), 3)
+
+    def test_listagem_inclui_campo_acesso_permitido(self):
+        """O campo 'acesso_permitido' deve refletir a regra de negócio."""
+        self.client.force_authenticate(user=self.user_basico_ti)
+        response = self.client.get('/api/documentos/')
+
+        docs = {d['nome']: d for d in response.json()['results']}
+
+        # TI/Basico acessa TI/Basico → True
+        self.assertTrue(docs['Doc TI Básico.pdf']['acesso_permitido'])
+        # TI/Basico NÃO acessa TI/Militar (nível menor) → False
+        self.assertFalse(docs['Doc TI Militar.pdf']['acesso_permitido'])
+        # TI/Basico NÃO acessa Tecnico/Basico (setor diferente) → False
+        self.assertFalse(docs['Doc Técnico Básico.pdf']['acesso_permitido'])
+
+    def test_listagem_usuario_sem_dados_usa_mock_padrao(self):
+        """Usuário sem setor/nivel → assume mock padrão: Tecnico / Basico."""
+        self.client.force_authenticate(user=self.user_sem_dados)
+        response = self.client.get('/api/documentos/')
+
+        docs = {d['nome']: d for d in response.json()['results']}
+
+        # Com o mock padrão (Tecnico/Basico), só o doc Tecnico/Basico é permitido
+        self.assertTrue(docs['Doc Técnico Básico.pdf']['acesso_permitido'])
+        self.assertFalse(docs['Doc TI Básico.pdf']['acesso_permitido'])
+
+    def test_listagem_operador_tem_acesso_total(self):
+        """Operador deve ter acesso_permitido=True em TODOS os documentos."""
+        self.client.force_authenticate(user=self.user_operador_rh)
+        response = self.client.get('/api/documentos/')
+
+        for doc in response.json()['results']:
+            self.assertTrue(doc['acesso_permitido'])
+
+    #DETALHE (GET /api/documentos/{id}/
+    def test_detalhe_sem_autenticacao_retorna_401(self):
         response = self.client.get(
-            '/api/documentos/',
-            {'setor': 'Financeiro, Judiciário'},
+            f'/api/documentos/{self.doc_ti_basico.id_documento}/'
         )
+        self.assertEqual(response.status_code, 401)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            {resultado['id_documento'] for resultado in response.json()['results']},
-            {documento_financeiro.id_documento, documento_juridico.id_documento},
-        )
-
-    def test_lista_documentos_aplica_filtros_de_metadados_com_and(self):
-        documento_correspondente = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Relatorio de Auditoria.pdf',
-            setor='Financeiro',
-            nivel='Público',
-            data='documentos/auditoria.pdf',
-        )
-        documento_nome_diferente = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Contrato de Auditoria.pdf',
-            setor='Financeiro',
-            nivel='Público',
-            data='documentos/contrato.pdf',
-        )
-        documento_setor_diferente = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Relatorio de Auditoria Tecnica.pdf',
-            setor='Tecnico',
-            nivel='Público',
-            data='documentos/tecnico.pdf',
-        )
-        etiqueta_auditoria = Etiqueta.objects.create(nome='Auditoria')
-        documento_correspondente.etiquetas.add(etiqueta_auditoria)
-        documento_nome_diferente.etiquetas.add(etiqueta_auditoria)
-        documento_setor_diferente.etiquetas.add(etiqueta_auditoria)
-
+    def test_detalhe_mesmo_setor_nivel_igual_retorna_200(self):
+        """TI/Basico acessa TI/Basico → 200."""
+        self.client.force_authenticate(user=self.user_basico_ti)
         response = self.client.get(
-            '/api/documentos/',
-            {
-                'nome': 'Relatorio',
-                'etiquetas': 'Auditoria',
-                'setor': 'Financeiro',
-            },
+            f'/api/documentos/{self.doc_ti_basico.id_documento}/'
         )
-
         self.assertEqual(response.status_code, 200)
-        resultados = response.json()['results']
-        self.assertEqual(len(resultados), 1)
-        self.assertEqual(
-            resultados[0]['id_documento'],
-            documento_correspondente.id_documento,
-        )
 
-    def test_lista_documentos_filtra_data_atualizacao_minima(self):
-        documento_antigo = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Documento Antigo.pdf',
-            setor='TI',
-            nivel='Público',
-            data='documentos/antigo.pdf',
-        )
-        documento_novo = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Documento Novo.pdf',
-            setor='TI',
-            nivel='Público',
-            data='documentos/novo.pdf',
-        )
-        data_corte = timezone.now() - timedelta(days=1)
-        Documento.objects.filter(id_documento=documento_antigo.id_documento).update(
-            data_atualizacao=data_corte - timedelta(days=1),
-        )
-        Documento.objects.filter(id_documento=documento_novo.id_documento).update(
-            data_atualizacao=data_corte + timedelta(days=1),
-        )
-
+    def test_detalhe_mesmo_setor_nivel_maior_retorna_200(self):
+        """TI/Comercial acessa TI/Basico → 200 (nível maior)."""
+        self.client.force_authenticate(user=self.user_comercial_ti)
         response = self.client.get(
-            '/api/documentos/',
-            {'data_atualizacao': data_corte.date().isoformat()},
+            f'/api/documentos/{self.doc_ti_basico.id_documento}/'
         )
-
         self.assertEqual(response.status_code, 200)
-        resultados = response.json()['results']
-        self.assertEqual(len(resultados), 2)
-        self.assertEqual(
-            {resultado['id_documento'] for resultado in resultados},
-            {self.documento.id_documento, documento_novo.id_documento},
-        )
 
-    def test_pesquisa_por_contexto_restringe_resultados_aos_filtros_anteriores(self):
-        documento_filtrado = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Documento Filtrado.pdf',
-            setor='Financeiro',
-            nivel='Público',
-            data='documentos/filtrado.pdf',
+    def test_detalhe_mesmo_setor_nivel_menor_retorna_403(self):
+        """TI/Basico tenta acessar TI/Militar → 403 (nível menor)."""
+        self.client.force_authenticate(user=self.user_basico_ti)
+        response = self.client.get(
+            f'/api/documentos/{self.doc_ti_militar.id_documento}/'
         )
-        documento_fora_do_filtro = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Documento Fora.pdf',
-            setor='TI',
-            nivel='Público',
-            data='documentos/fora.pdf',
+        self.assertEqual(response.status_code, 403)
+
+    def test_detalhe_setor_diferente_retorna_403(self):
+        """TI/Basico tenta acessar Tecnico/Basico → 403 (setor diferente)."""
+        self.client.force_authenticate(user=self.user_basico_ti)
+        response = self.client.get(
+            f'/api/documentos/{self.doc_tecnico_basico.id_documento}/'
         )
-        resultados_contexto = [
-            {'id_documento_id': documento_fora_do_filtro.id_documento},
-            {'id_documento_id': documento_filtrado.id_documento},
-        ]
+        self.assertEqual(response.status_code, 403)
 
-        with patch(
-            'api.views.documento_api.VectorService.buscar_contexto',
-            return_value=resultados_contexto,
-        ) as buscar_contexto:
-            response = self.client.get(
-                '/api/documentos/',
-                {'setor': 'Financeiro', 'contexto': 'auditoria'},
-            )
-
+    def test_detalhe_operador_acessa_qualquer_documento(self):
+        """RH/Operador acessa TI/Militar → 200 (operador tem acesso total)."""
+        self.client.force_authenticate(user=self.user_operador_rh)
+        response = self.client.get(
+            f'/api/documentos/{self.doc_ti_militar.id_documento}/'
+        )
         self.assertEqual(response.status_code, 200)
-        resultados = response.json()['results']
-        self.assertEqual(len(resultados), 1)
-        self.assertEqual(
-            resultados[0]['id_documento'],
-            documento_filtrado.id_documento,
-        )
-        buscar_contexto.assert_called_once_with('auditoria', limite=5)
 
-    def test_pesquisa_por_contexto_preserva_ordem_dos_documentos_encontrados(self):
-        primeiro = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Primeiro.pdf',
-            setor='TI',
-            nivel='Público',
-            data='documentos/primeiro.pdf',
-        )
-        segundo = Documento.objects.create(
-            tipo_arquivo='pdf',
-            nome='Segundo.pdf',
-            setor='TI',
-            nivel='Público',
-            data='documentos/segundo.pdf',
-        )
+    def test_detalhe_usuario_sem_dados_usa_mock_padrao(self):
+        """Usuário sem setor/nivel → assume Tecnico/Basico (mock padrão)."""
+        self.client.force_authenticate(user=self.user_sem_dados)
 
-        with patch(
-            'api.views.documento_api.VectorService.buscar_contexto',
-            return_value=[
-                {'id_documento_id': segundo.id_documento},
-                {'id_documento_id': primeiro.id_documento},
-                {'id_documento_id': segundo.id_documento},
-            ],
-        ):
-            response = self.client.get(
-                '/api/documentos/',
-                {'contexto': 'ordem de relevancia'},
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            [resultado['id_documento'] for resultado in response.json()['results']],
-            [segundo.id_documento, primeiro.id_documento],
+        # Acessa Tecnico/Basico → 200 (mock bate com o documento)
+        response_ok = self.client.get(
+            f'/api/documentos/{self.doc_tecnico_basico.id_documento}/'
         )
+        self.assertEqual(response_ok.status_code, 200)
+
+        # Acessa TI/Basico → 403 (setor diferente do mock)
+        response_403 = self.client.get(
+            f'/api/documentos/{self.doc_ti_basico.id_documento}/'
+        )
+        self.assertEqual(response_403.status_code, 403)

@@ -6,6 +6,7 @@ from api.validators.documento_validator import (
     validar_arquivo_documento,
     validar_tipo_arquivo,
 )
+from api.services.authorization_service import verificar_acesso
 
 
 class DocumentoSerializer(serializers.ModelSerializer):
@@ -16,6 +17,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
         required=False,
         write_only=True,
     )
+    acesso_permitido = serializers.SerializerMethodField()
 
     class Meta:
         model = Documento
@@ -29,6 +31,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
             'nivel',
             'data',
             'etiquetas',
+            'acesso_permitido',
         )
         read_only_fields = ('data_criacao', 'data_atualizacao')
 
@@ -66,6 +69,16 @@ class DocumentoSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data['etiquetas'] = EtiquetaSerializer(instance.etiquetas.all(), many=True).data
         return data
+
+    def get_acesso_permitido(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user:
+            return verificar_acesso(None, None, obj.setor, obj.nivel)
+
+        setor_usuario = getattr(request.user, 'setor', None)
+        nivel_usuario = getattr(request.user, 'nivel', None)
+
+        return verificar_acesso(setor_usuario, nivel_usuario, obj.setor, obj.nivel)
 
     def validate_data(self, value):
         return validar_arquivo_documento(value)
