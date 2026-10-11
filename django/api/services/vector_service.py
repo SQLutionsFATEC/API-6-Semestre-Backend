@@ -124,6 +124,21 @@ class VectorService:
         except Exception as error:
             raise RuntimeError(f'Falha ao extrair o PDF: {caminho_pdf}') from error
 
+    @staticmethod
+    def _extrair_docx_por_pagina(caminho_docx: str) -> List[Tuple[int, str]]:
+        from docx import Document as WordDocument
+
+        documento_word = WordDocument(caminho_docx)
+        partes = [paragrafo.text for paragrafo in documento_word.paragraphs]
+        partes.extend(
+            celula.text
+            for tabela in documento_word.tables
+            for linha in tabela.rows
+            for celula in linha.cells
+        )
+        texto = '\n'.join(parte for parte in partes if parte).strip()
+        return [(1, texto)] if texto else []
+
     @classmethod
     def processar_documento(
         cls,
@@ -142,7 +157,10 @@ class VectorService:
 
         from api.models import DocumentoChunk
 
-        paginas = cls._extrair_markdown_por_pagina(caminho)
+        if Path(caminho).suffix.lower() == '.docx':
+            paginas = cls._extrair_docx_por_pagina(caminho)
+        else:
+            paginas = cls._extrair_markdown_por_pagina(caminho)
         if not paginas:
             return 0
 
