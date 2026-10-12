@@ -90,6 +90,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
     def validate_tipo_arquivo(self, value):
         return validar_tipo_arquivo(value)
 
+
 class DocumentoUpdateSerializer(serializers.ModelSerializer):
     etiquetas = serializers.PrimaryKeyRelatedField(
         many=True,
