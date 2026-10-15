@@ -7,8 +7,8 @@ NIVEL_HIERARQUIA = {
 }
 
 # Valores padrão (mock)
-SETOR_PADRAO = 'Operador'
-NIVEL_PADRAO = 'Militar'
+SETOR_PADRAO = 'Básico'
+NIVEL_PADRAO = 'Operador'
 
 
 def verificar_acesso(
