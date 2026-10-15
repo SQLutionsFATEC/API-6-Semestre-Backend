@@ -23,6 +23,8 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from api.views.documento_api import DocumentoViewSet
 from api.views.etiqueta_api import EtiquetaViewSet
+from api.views.perfil_api import PerfilView
+from api.views.usuarios_api import UsuarioDetalheView, UsuariosView
 
 router = DefaultRouter()
 router.register(r'documentos', DocumentoViewSet, basename='documento')
@@ -31,6 +33,9 @@ router.register(r'etiquetas', EtiquetaViewSet, basename='etiqueta')
 urlpatterns = [
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/perfil/', PerfilView.as_view(), name='perfil'),
+    path('api/usuarios/', UsuariosView.as_view(), name='usuarios'),
+    path('api/usuarios/<str:id_usuario>/', UsuarioDetalheView.as_view(), name='usuario-detalhe'),
     path('api/', include(router.urls)),
 ]
 
