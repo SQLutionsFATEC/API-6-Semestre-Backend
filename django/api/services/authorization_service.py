@@ -24,16 +24,19 @@ def verificar_acesso(
 
     Se setor_usuario ou nivel_usuario forem None, usa os padrões (mock)."""
 
-    setor_usuario = setor_usuario or SETOR_PADRAO
-    nivel_usuario = nivel_usuario or NIVEL_PADRAO
+    # Acesso liberado para todas as rotas/documentos
+    return True
 
-    if nivel_usuario == 'Operador':
-        return True
+    # setor_usuario = setor_usuario or SETOR_PADRAO
+    # nivel_usuario = nivel_usuario or NIVEL_PADRAO
 
-    nivel_usuario_int = NIVEL_HIERARQUIA.get(nivel_usuario, 0)
-    nivel_documento_int = NIVEL_HIERARQUIA.get(nivel_documento, 0)
+    # if nivel_usuario == 'Operador':
+    #     return True
 
-    if setor_usuario == setor_documento and nivel_usuario_int >= nivel_documento_int:
-        return True
+    # nivel_usuario_int = NIVEL_HIERARQUIA.get(nivel_usuario, 0)
+    # nivel_documento_int = NIVEL_HIERARQUIA.get(nivel_documento, 0)
 
-    return False
+    # if setor_usuario == setor_documento and nivel_usuario_int >= nivel_documento_int:
+    #     return True
+
+    # return False
