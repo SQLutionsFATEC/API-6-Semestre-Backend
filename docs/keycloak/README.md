@@ -23,7 +23,9 @@ docker compose -f docker-compose.yaml up -d keycloak keycloak-db
 - No primeiro start o realm **`sqlutions`** é importado automaticamente de
   [deploy/keycloak/realm-export.json](../../deploy/keycloak/realm-export.json).
 - Usuário de exemplo já criado no realm: `usuario@example.com` / `usuario`
-  (nível `basico`, setor `tecnico`).
+  (nível `basico`, setor `tecnico`). O atributo `setor` é um atributo
+  gerenciado do **perfil declarativo de usuários** do realm (componente
+  `declarative-user-profile` no realm-export).
 
 ## 2. Estrutura de identidade no realm `sqlutions`
 
@@ -83,9 +85,9 @@ curl -s -X POST "$KC/admin/realms/$REALM/users" \
     "username": "novo.usuario@example.com",
     "email": "novo.usuario@example.com",
     "firstName": "Novo",
+    "lastName": "Usuario",
     "enabled": true,
     "attributes": { "setor": ["tecnico"] },
-    "realmRoles": ["basico"],
     "credentials": [
       { "type": "password", "value": "senha-provisoria", "temporary": true }
     ]
@@ -94,8 +96,16 @@ curl -s -X POST "$KC/admin/realms/$REALM/users" \
 
 - `temporary: true` marca a senha como **temporária**: o usuário é obrigado a
   trocá-la no primeiro login.
-- Por padrão de negócio, um usuário criado sem `realmRoles`/`attributes` começa
-  como nível `basico` (role default do realm) e setor `tecnico`.
+- **Atenção (Keycloak 26):** o campo `realmRoles` do payload de criação é
+  _ignorado_ — a role de nível deve ser atribuída depois, no endpoint
+  `role-mappings/realm` (ver 4.3). Por padrão de negócio, um usuário criado
+  sem roles adicionais começa como nível `basico` (role default do realm) e
+  setor `tecnico`.
+- **Atenção (perfil declarativo):** o retrato do Keycloak 26 exige
+  `firstName` **e** `lastName` preenchidos para aceitar o login direto;
+  o contrário devolve `"error": "invalid_grant", "error_description":
+  "Account is not fully set up"` (também é a mensagem vista quando há
+  required actions pendentes, ex.: senha temporária).
 - Em sucesso a resposta é `201 Created` com header
   `Location: .../users/<id>` (o `id` é o `sub` usado pelo backend).
 
@@ -251,6 +261,7 @@ curl -s -X POST http://localhost:8000/api/usuarios/ \
   -H "Content-Type: application/json" \
   -d '{
     "nome": "Jose Almeida",
+    "sobrenome": "Souza",
     "email": "jose@example.com",
     "senha_temporaria": "trocar-depois",
     "nivel_acesso": "operador",

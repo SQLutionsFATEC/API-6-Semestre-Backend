@@ -83,6 +83,7 @@ class UsuarioCreateSerializer(serializers.Serializer):
     """Criação de usuário (rota admin) com senha temporária obrigatória."""
 
     nome = serializers.CharField(max_length=255)
+    sobrenome = serializers.CharField(max_length=255)
     email = serializers.EmailField()
     senha_temporaria = serializers.CharField(
         write_only=True,

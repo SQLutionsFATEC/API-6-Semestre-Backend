@@ -157,6 +157,10 @@ def listar_usuarios(busca=None, inicio=0, maximo=100):
 
 def obter_usuario(id_usuario):
     """Lê os campos de um usuário (nome, email, atributos, etc.) pelo id."""
+    if not id_usuario:
+        raise KeycloakAdminException(
+            'Id de usuário ausente.', codigo_status=404, resposta=''
+        )
     resposta = _requisitar('GET', f'{_url_admin_realm()}/users/{id_usuario}')
     if resposta.status_code == 404:
         raise KeycloakAdminException(
@@ -167,13 +171,16 @@ def obter_usuario(id_usuario):
     return _verificar(resposta, 'obter usuário').json()
 
 
-def criar_usuario(nome, email, senha_temporaria,
+def criar_usuario(nome, sobrenome, email, senha_temporaria,
                   nivel_acesso=NIVEL_PADRAO, setor=SETOR_PADRAO):
     """Cria um usuário no realm com senha temporária, nível e setor.
 
     nivel_acesso vira realm role (padrão 'basico') e setor vira atributo do
     usuário (padrão 'tecnico'). A senha é criada com temporary=True: o usuário
-    é obrigado a trocá-la no primeiro login."""
+    é obrigado a trocá-la no primeiro login.
+
+    O Keycloak 26 ignora o campo 'realmRoles' no payload de criação, então a
+    role de nível é atribuída em uma chamada dedicada a role-mappings/realm."""
     _validar_nivel(nivel_acesso)
     _validar_setor(setor)
 
@@ -181,8 +188,8 @@ def criar_usuario(nome, email, senha_temporaria,
         'username': email,
         'email': email,
         'firstName': nome,
+        'lastName': sobrenome,
         'enabled': True,
-        'realmRoles': [nivel_acesso],
         'attributes': {'setor': [setor]},
         'credentials': [
             {'type': 'password', 'value': senha_temporaria, 'temporary': True}
@@ -193,6 +200,15 @@ def criar_usuario(nome, email, senha_temporaria,
     _verificar(resposta, 'criar usuário')
 
     id_criado = resposta.headers.get('Location', '').rsplit('/', 1)[-1]
+    papel = obter_role(nivel_acesso)
+    _verificar(
+        _requisitar(
+            'POST',
+            f'{_url_admin_realm()}/users/{id_criado}/role-mappings/realm',
+            json=[{'id': papel['id'], 'name': papel['name']}],
+        ),
+        'atribuir role de nível ao usuário criado',
+    )
     return obter_usuario(id_criado)
 
 
@@ -224,6 +240,16 @@ def atualizar_usuario(id_usuario, **campos):
 
     if nivel is not None:
         trocar_nivel_acesso(id_usuario, nivel)
+
+    # O PUT da Admin API substitui a representação inteira do usuário:
+    # campos ausentes viram valores vazios. Preservamos os atuais.
+    atual = obter_usuario(id_usuario)
+    for campo_padrao, padrao in (
+        ('firstName', atual.get('firstName')),
+        ('lastName', atual.get('lastName')),
+        ('email', atual.get('email')),
+    ):
+        payload.setdefault(campo_padrao, padrao)
 
     if payload:
         resposta = _requisitar('PUT', f'{_url_admin_realm()}/users/{id_usuario}', json=payload)

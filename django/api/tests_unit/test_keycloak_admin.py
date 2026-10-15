@@ -88,25 +88,34 @@ def test_criar_usuario_monta_payload_com_senha_temporaria(envio):
     feitas, enfileirar = envio
     enfileirar(
         RespostaFake(status_code=201, headers={'Location': '/users/' + ID_USUARIO}),
+        # GET /roles/<nome> para obter o id da role
+        RespostaFake(status_code=200, dados={'id': 'role-1', 'name': 'comercial'}),
+        # POST /users/<id>/role-mappings/realm para atribuir a role
+        RespostaFake(status_code=204),
         RespostaFake(status_code=200, dados={'id': ID_USUARIO, 'username': 'novo@exemplo.com'}),
     )
 
     usuario = criar_usuario(
-        'Novo Usuário', 'novo@exemplo.com', 'senha-provisoria',
+        'Novo', 'Usuário', 'novo@exemplo.com', 'senha-provisoria',
         nivel_acesso='comercial', setor='qualitativo',
     )
 
     assert usuario['id'] == ID_USUARIO
-    autenticada, leitura = feitas
+    autenticada, role, atribuicao, leitura = feitas
     payload = autenticada['json']
     assert autenticada['metodo'] == 'POST'
-    assert payload['firstName'] == 'Novo Usuário'
+    assert payload['firstName'] == 'Novo'
+    assert payload['lastName'] == 'Usuário'
     assert payload['email'] == 'novo@exemplo.com'
     assert payload['attributes'] == {'setor': ['qualitativo']}
-    assert payload['realmRoles'] == ['comercial']
     credencial = payload['credentials'][0]
     assert credencial['value'] == 'senha-provisoria'
     assert credencial['temporary'] is True
+    # A role de nível é atribuída por chamada dedicada (Keycloak 26
+    # ignora 'realmRoles' no payload de criação)
+    assert atribuicao['metodo'] == 'POST'
+    assert atribuicao['url'].endswith('/role-mappings/realm')
+    assert atribuicao['json'] == [{'id': 'role-1', 'name': 'comercial'}]
     assert leitura['metodo'] == 'GET'
 
 
@@ -114,28 +123,30 @@ def test_criar_usuario_aplica_padroes_de_negocio(envio):
     feitas, enfileirar = envio
     enfileirar(
         RespostaFake(status_code=201, headers={'Location': '/users/' + ID_USUARIO}),
+        RespostaFake(status_code=200, dados={'id': 'role-1', 'name': 'basico'}),
+        RespostaFake(status_code=204),
         RespostaFake(status_code=200, dados={'id': ID_USUARIO}),
     )
 
-    criar_usuario('Padrão', 'padrao@exemplo.com', 'senha')
+    criar_usuario('Padrão', 'Negócio', 'padrao@exemplo.com', 'senha')
 
     payload = feitas[0]['json']
-    assert payload['realmRoles'] == ['basico']
     assert payload['attributes'] == {'setor': ['tecnico']}
+    assert feitas[2]['json'] == [{'id': 'role-1', 'name': 'basico'}]
 
 
 def test_criar_usuario_com_nivel_invalido_levanta_erro(envio):
     _, enfileirar = envio
 
     with pytest.raises(ValueError):
-        criar_usuario('X', 'x@exemplo.com', 'senha', nivel_acesso='raiz')
+        criar_usuario('X', 'Y', 'x@exemplo.com', 'senha', nivel_acesso='raiz')
 
 
 def test_criar_usuario_com_setor_invalido_levanta_erro(envio):
     _, enfileirar = envio
 
     with pytest.raises(ValueError):
-        criar_usuario('X', 'x@exemplo.com', 'senha', setor='rh')
+        criar_usuario('X', 'Y', 'x@exemplo.com', 'senha', setor='rh')
 
 
 def test_obter_usuario_retorna_campos(envio):
@@ -160,6 +171,8 @@ def test_listar_usuarios_passa_filtro_de_busca(envio):
 def test_atualizar_usuario_muda_nome_email_setor_e_senha(envio):
     feitas, enfileirar = envio
     enfileirar(
+        # GET do usuário atual (para o merge que preserva os campos)
+        RespostaFake(status_code=200, dados={'id': ID_USUARIO, 'lastName': 'Antigo'}),
         RespostaFake(status_code=204),          # PUT dos campos
         RespostaFake(status_code=204),          # PUT /reset-password
         RespostaFake(status_code=200, dados={'id': ID_USUARIO}),
@@ -175,28 +188,59 @@ def test_atualizar_usuario_muda_nome_email_setor_e_senha(envio):
     )
 
     metodos = [(chamada['metodo'], chamada['url']) for chamada in feitas]
-    assert ('PUT', keycloak_admin._url_admin_realm() + '/users/' + ID_USUARIO) == metodos[0]
-    assert metodos[1][0] == 'PUT'
-    assert metodos[1][1].endswith('/reset-password')
-    payload = feitas[0]['json']
+    assert ('GET', keycloak_admin._url_admin_realm() + '/users/' + ID_USUARIO) == metodos[0]
+    assert ('PUT', keycloak_admin._url_admin_realm() + '/users/' + ID_USUARIO) == metodos[1]
+    assert metodos[2][0] == 'PUT'
+    assert metodos[2][1].endswith('/reset-password')
+    payload = feitas[1]['json']
     assert payload['firstName'] == 'Nome Novo'
     assert payload['email'] == 'novo@exemplo.com'
     assert payload['attributes'] == {'setor': ['normativo']}
-    payload_senha = feitas[1]['json']
+    payload_senha = feitas[2]['json']
     assert payload_senha == {'type': 'password', 'value': 'nova-senha', 'temporary': False}
+    # Campos não enviados são preservados no PUT (representação completa)
+    assert feitas[1]['json']['lastName'] == 'Antigo'
 
 
-def test_atualizar_usuario_somente_senha_nao_envia_put_de_campos(envio):
+def test_atualizar_usuario_somente_senha_mantem_campos_e_muda_senha(envio):
     feitas, enfileirar = envio
     enfileirar(
-        RespostaFake(status_code=204),
-        RespostaFake(status_code=200, dados={'id': ID_USUARIO}),
+        # leitura p/ merge (preserva firstName/lastName/email)
+        RespostaFake(status_code=200, dados={
+            'id': ID_USUARIO, 'firstName': 'Joao',
+            'lastName': 'Soares', 'email': 'soares@x.com',
+        }),
+        RespostaFake(status_code=204),                            # PUT dos campos
+        RespostaFake(status_code=204),                            # PUT /reset-password
+        RespostaFake(status_code=200, dados={'id': ID_USUARIO}),  # leitura final
     )
 
     atualizar_usuario(ID_USUARIO, senha='so-senha')
 
     metodos = [chamada['metodo'] for chamada in feitas]
-    assert metodos == ['PUT', 'GET']  # reset-password + leitura final
+    assert metodos == ['GET', 'PUT', 'PUT', 'GET']
+    assert feitas[1]['json']['firstName'] == 'Joao'
+    assert feitas[2]['url'].endswith('/reset-password')
+
+
+def test_atualizar_usuario_preserva_campos_quando_muda_somente_setor(envio):
+    feitas, enfileirar = envio
+    enfileirar(
+        RespostaFake(status_code=200, dados={
+            'id': ID_USUARIO, 'firstName': 'Maria', 'lastName': 'Silva',
+            'email': 'maria@x.com',
+        }),
+        RespostaFake(status_code=204),  # PUT com payload mesclado
+        RespostaFake(status_code=200, dados={'id': ID_USUARIO}),
+    )
+
+    atualizar_usuario(ID_USUARIO, setor='qualitativo')
+
+    payload = feitas[1]['json']
+    assert payload['attributes'] == {'setor': ['qualitativo']}
+    assert payload['firstName'] == 'Maria'
+    assert payload['lastName'] == 'Silva'
+    assert payload['email'] == 'maria@x.com'
 
 
 def test_trocar_nivel_acesso_remove_antiga_e_atribui_nova(envio):

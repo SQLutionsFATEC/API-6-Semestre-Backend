@@ -80,6 +80,7 @@ class UsuariosView(APIView):
         try:
             usuario = keycloak_admin.criar_usuario(
                 nome=dados['nome'],
+                sobrenome=dados['sobrenome'],
                 email=dados['email'],
                 senha_temporaria=dados['senha_temporaria'],
                 nivel_acesso=dados['nivel_acesso'],

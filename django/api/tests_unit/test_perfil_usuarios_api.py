@@ -157,8 +157,9 @@ def test_usuarios_lista_usuarios(mock_admin):
 
 
 def test_usuarios_cria_usuario_com_senha_temporaria(mock_admin):
-    def criar(nome, email, senha_temporaria, nivel_acesso='basico', setor='tecnico'):
+    def criar(nome, sobrenome, email, senha_temporaria, nivel_acesso='basico', setor='tecnico'):
         assert nome == 'Jose Almeida'
+        assert sobrenome == 'Souza'
         assert email == 'jose@example.com'
         assert senha_temporaria == 'senha-temp'
         assert nivel_acesso == 'operador'
@@ -176,6 +177,7 @@ def test_usuarios_cria_usuario_com_senha_temporaria(mock_admin):
         reverse('usuarios'),
         {
             'nome': 'Jose Almeida',
+            'sobrenome': 'Souza',
             'email': 'jose@example.com',
             'senha_temporaria': 'senha-temp',
             'nivel_acesso': 'operador',
@@ -197,6 +199,7 @@ def test_usuarios_cria_usuario_rejeita_nivel_invalido(mock_admin):
         reverse('usuarios'),
         {
             'nome': 'Jose',
+            'sobrenome': 'Souza',
             'email': 'jose@example.com',
             'senha_temporaria': 'senha-temp',
             'nivel_acesso': 'raiz',
