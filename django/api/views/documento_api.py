@@ -141,15 +141,15 @@ class DocumentoViewSet(ModelViewSet):
     def retrieve(self, request, *args, **kwargs):
         documento = self.get_object()
 
-        # setor_usuario = getattr(request.user, 'setor', None)
-        # nivel_usuario = getattr(request.user, 'nivel', None)
+        setor_usuario = getattr(request.user, 'setor', None)
+        nivel_usuario = getattr(request.user, 'nivel', None)
 
-        # if not verificar_acesso(
-        #     setor_usuario, nivel_usuario, documento.setor, documento.nivel
-        # ):
-        #     raise PermissionDenied(
-        #         "Você não tem permissão para acessar este documento."
-        #     )
+        if not verificar_acesso(
+            setor_usuario, nivel_usuario, documento.setor, documento.nivel
+        ):
+            raise PermissionDenied(
+                "Você não tem permissão para acessar este documento."
+            )
 
         serializer = self.get_serializer(documento)
         return Response(serializer.data, status=status.HTTP_200_OK)

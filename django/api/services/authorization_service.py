@@ -7,8 +7,8 @@ NIVEL_HIERARQUIA = {
 }
 
 # Valores padrão (mock)
-SETOR_PADRAO = 'Tecnico'
-NIVEL_PADRAO = 'Basico'
+SETOR_PADRAO = 'Operador'
+NIVEL_PADRAO = 'Militar'
 
 
 def verificar_acesso(
@@ -25,18 +25,17 @@ def verificar_acesso(
     Se setor_usuario ou nivel_usuario forem None, usa os padrões (mock)."""
 
     # Acesso liberado para todas as rotas/documentos
-    return True
 
-    # setor_usuario = setor_usuario or SETOR_PADRAO
-    # nivel_usuario = nivel_usuario or NIVEL_PADRAO
+    setor_usuario = setor_usuario or SETOR_PADRAO
+    nivel_usuario = nivel_usuario or NIVEL_PADRAO
 
-    # if nivel_usuario == 'Operador':
-    #     return True
+    if nivel_usuario == 'Operador':
+        return True
 
-    # nivel_usuario_int = NIVEL_HIERARQUIA.get(nivel_usuario, 0)
-    # nivel_documento_int = NIVEL_HIERARQUIA.get(nivel_documento, 0)
+    nivel_usuario_int = NIVEL_HIERARQUIA.get(nivel_usuario, 0)
+    nivel_documento_int = NIVEL_HIERARQUIA.get(nivel_documento, 0)
 
-    # if setor_usuario == setor_documento and nivel_usuario_int >= nivel_documento_int:
-    #     return True
+    if setor_usuario == setor_documento and nivel_usuario_int >= nivel_documento_int:
+        return True
 
-    # return False
+    return False
