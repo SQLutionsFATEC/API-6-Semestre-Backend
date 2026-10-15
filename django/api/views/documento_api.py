@@ -34,7 +34,7 @@ class DocumentoViewSet(ModelViewSet):
     serializer_class = DocumentoSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
 
     lookup_field = "id_documento"
 
