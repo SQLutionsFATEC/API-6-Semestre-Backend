@@ -85,23 +85,18 @@ class DocumentoViewSet(ModelViewSet):
                 documento = serializer.save()
                 caminho_arquivo = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
 
-                setor = (serializer.validated_data.get('setor') or '').strip()
-                if not setor:
-                    setor = (MLService.classificar_documento(caminho_arquivo) or '').strip()
-                    if not setor:
-                        raise serializers.ValidationError(
-                            {'setor': 'Não foi possível classificar o documento.'}
-                        )
-                    documento.setor = setor
-                    documento.save(update_fields=['setor'])
-
                 nomes_etiquetas = set()
                 for nome in serializer.validated_data.get('etiquetas', []):
-                    if nome and nome.strip():
-                        nomes_etiquetas.add(nome.strip())
+                    if nome and str(nome).strip():
+                        nomes_etiquetas.add(str(nome).strip())
 
-                if setor:
-                    nomes_etiquetas.add(setor)
+                # Executa a classificação de etiqueta via ML (Qualitativo, Jurídico, Normativo, Técnico)
+                tag_predita = (MLService.classificar_documento(caminho_arquivo) or '').strip()
+                if tag_predita:
+                    nomes_etiquetas.add(tag_predita)
+                    if not documento.setor:
+                        documento.setor = tag_predita
+                        documento.save(update_fields=['setor'])
 
                 for nome_etiqueta in sorted(nomes_etiquetas):
                     etiqueta, _ = Etiqueta.objects.get_or_create(nome=nome_etiqueta)
