@@ -1,0 +1,117 @@
+{
+  "realm": "sqlutions",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": true,
+  "sslRequired": "external",
+  "defaultRoles": ["basico"],
+  "attributes": {
+    "frontendUrl": "http://localhost:3000"
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "basico",
+        "description": "Nível de acesso basico: visualiza documentos de nível Basico do seu setor"
+      },
+      {
+        "name": "comercial",
+        "description": "Nível de acesso comercial: visualiza documentos até nível Comercial do seu setor"
+      },
+      {
+        "name": "militar",
+        "description": "Nível de acesso militar: visualiza documentos até nível Militar do seu setor"
+      },
+      {
+        "name": "operador",
+        "description": "Nível de acesso operador: acessa todos os documentos e gerencia requisições"
+      },
+      {
+        "name": "admin",
+        "description": "Papel administrativo: gerencia usuários do realm (rotas /api/usuarios/)"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "usuario",
+      "enabled": true,
+      "email": "usuario@example.com",
+      "emailVerified": true,
+      "firstName": "Usuário",
+      "lastName": "Exemplo",
+      "realmRoles": ["basico"],
+      "attributes": {
+        "setor": ["tecnico"]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "usuario",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "frontend",
+      "name": "frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "rootUrl": "http://localhost:3000",
+      "redirectUris": ["*"],
+      "webOrigins": ["+"],
+      "protocolMappers": [
+        {
+          "name": "setor",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "setor",
+            "claim.name": "setor",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        }
+      ],
+      "defaultClientScopes": ["profile", "email"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "backend",
+      "name": "backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "protocolMappers": [
+        {
+          "name": "setor",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "setor",
+            "claim.name": "setor",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        }
+      ],
+      "defaultClientScopes": ["profile", "email"],
+      "optionalClientScopes": []
+    }
+  ]
+}

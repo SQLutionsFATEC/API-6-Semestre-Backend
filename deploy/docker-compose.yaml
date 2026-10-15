@@ -1,4 +1,44 @@
 services:
+  # -------------------- Keycloak --------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    container_name: keycloak
+    command: [ "start-dev", "--import-realm" ]
+    environment:
+      # Perfil admin:admin com acesso ao Dashboard (http://localhost:8080)
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://keycloak-db:5432/keycloak
+      - KC_DB_USERNAME=${KEYCLOAK_DB_USER:-keycloak}
+      - KC_DB_PASSWORD=${KEYCLOAK_DB_PASSWORD:-keycloak}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+  # -------------------- Database (Keycloak) --------------------
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: keycloak-db
+    environment:
+      - POSTGRES_USER=${KEYCLOAK_DB_USER:-keycloak}
+      - POSTGRES_PASSWORD=${KEYCLOAK_DB_PASSWORD:-keycloak}
+      - POSTGRES_DB=keycloak
+    ports:
+      - "5433:5432"
+    volumes:
+      - keycloakdb:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USER:-keycloak} -d keycloak" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   # -------------------- Backend --------------------
   backend:
     build:
@@ -19,6 +59,10 @@ services:
       - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-nomic-embed-text-v2-moe}
       - RUN_SEED=${RUN_SEED:-false}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-sqlutions}
+      - KEYCLOAK_ADMIN_USERNAME=${KEYCLOAK_ADMIN_USERNAME:-admin}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-admin}
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,3 +142,4 @@ services:
 volumes:
   postgresdata:
   ollamadata:
+  keycloakdb:
