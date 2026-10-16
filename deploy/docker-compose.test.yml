@@ -48,7 +48,6 @@ services:
       - -m
       - pytest
       - -v
-      # As suítes rodam conforme testpaths de django/pytest.ini
       - --cov=api
       - --cov-config=.coveragerc
       - --cov-report=term-missing
