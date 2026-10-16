@@ -184,3 +184,22 @@ class KeycloakAuthentication(BaseAuthentication):
             )
 
         return claims
+
+
+# Registra o autenticador no OpenAPI para o Swagger UI exibir o
+# botão 'Authorize' com o token Bearer do Keycloak.
+from drf_spectacular.extensions import OpenApiAuthenticationExtension  # noqa: E402
+from drf_spectacular.plumbing import (  # noqa: E402
+    build_bearer_security_scheme_object,
+)
+
+
+class KeycloakAuthenticationExtension(OpenApiAuthenticationExtension):
+    target_class = 'api.authentication.keycloak.KeycloakAuthentication'
+    name = 'KeycloakBearer'
+
+    def get_security_definition(self, auto_schema):
+        return build_bearer_security_scheme_object(
+            header_name='Authorization',
+            token_prefix='Bearer',
+        )

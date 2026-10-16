@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from api.services.keycloak_admin import NIVEIS_ACESSO, SETORES
@@ -40,20 +41,25 @@ class UsuarioSerializer(serializers.Serializer):
     def to_internal_value(self, data):
         return super().to_internal_value(data)
 
+    @extend_schema_field(serializers.CharField)
     def get_nome(self, usuario):
         return usuario.get('firstName') or ''
 
+    @extend_schema_field(serializers.CharField)
     def get_sobrenome(self, usuario):
         return usuario.get('lastName') or ''
 
+    @extend_schema_field(serializers.CharField)
     def get_nivel_acesso(self, usuario):
         papeis = usuario.get('realmRoles') or usuario.get('realmMappings') or []
         return nivel_do_usuario(papeis)
 
+    @extend_schema_field(serializers.CharField)
     def get_setor(self, usuario):
         atributos = usuario.get('attributes') or {}
         return primeiro_valor(atributos.get('setor'), SETOR_PADRAO)
 
+    @extend_schema_field(serializers.BooleanField)
     def get_habilitado(self, usuario):
         return usuario.get('enabled', True)
 
