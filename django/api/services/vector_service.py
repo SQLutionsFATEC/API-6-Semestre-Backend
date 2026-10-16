@@ -223,7 +223,6 @@ class VectorService:
         if not pergunta:
             return []
 
-        embedding = cls.gerar_embedding(pergunta, prefixo='search_query')
         queryset = DocumentoChunk.objects.select_related('id_documento')
 
         if categoria:
@@ -233,13 +232,15 @@ class VectorService:
 
         try:
             from pgvector.django import CosineDistance
+            from django.db.models import Q
 
+            embedding = cls.gerar_embedding(pergunta, prefixo='search_query')
             distancia = CosineDistance('embedding', embedding)
             queryset = queryset.annotate(distancia=distancia).filter(
-                distancia__lt=MAX_COSINE_DISTANCE
+                Q(conteudo__icontains=pergunta) | Q(distancia__lt=0.72)
             ).order_by('distancia')[:limite]
         except Exception:
-            queryset = queryset.order_by('id_chunk')[:limite]
+            queryset = queryset.filter(conteudo__icontains=pergunta).order_by('id_chunk')[:limite]
 
         return list(
             queryset.values(
