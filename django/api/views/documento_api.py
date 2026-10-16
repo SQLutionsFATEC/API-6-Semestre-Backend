@@ -42,8 +42,8 @@ class DocumentoViewSet(ModelViewSet):
         request={'multipart/form-data': DocumentoSerializer},
         description=(
             "Cria um documento com nome e nível obrigatórios. Envie um arquivo PDF ou DOCX "
-            "no campo data. O setor pode ser informado; se omitido, será classificado "
-            "automaticamente e salvo no documento. Etiquetas adicionais são opcionais."
+            "no campo data. O setor e a etiqueta são definidos automaticamente pela "
+            "classificação do documento."
         ),
     )
     def create(self, request, *args, **kwargs):
@@ -85,27 +85,17 @@ class DocumentoViewSet(ModelViewSet):
                 documento = serializer.save()
                 caminho_arquivo = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
 
-                setor = (serializer.validated_data.get('setor') or '').strip()
-                if not setor:
-                    setor = (MLService.classificar_documento(caminho_arquivo) or '').strip()
-                    if not setor or setor == 'NAO_CLASSIFICADO':
-                        raise serializers.ValidationError(
-                            {'setor': 'Não foi possível classificar o documento.'}
-                        )
-                    documento.setor = setor
-                    documento.save(update_fields=['setor'])
+                setor = (
+                    MLService.classificar_documento(caminho_arquivo) or 'NAO_CLASSIFICADO'
+                ).strip() or 'NAO_CLASSIFICADO'
 
-                nomes_etiquetas = set()
-                for nome in serializer.validated_data.get('etiquetas', []):
-                    if nome and str(nome).strip():
-                        nomes_etiquetas.add(str(nome).strip())
+                # Setor e etiqueta são definidos exclusivamente pela classificação.
+                # Valores enviados no upload não devem sobrescrever a categoria detectada.
+                documento.setor = setor
+                documento.save(update_fields=['setor'])
 
-                if setor:
-                    nomes_etiquetas.add(setor)
-
-                for nome_etiqueta in sorted(nomes_etiquetas):
-                    etiqueta, _ = Etiqueta.objects.get_or_create(nome=nome_etiqueta)
-                    documento.etiquetas.add(etiqueta)
+                etiqueta, _ = Etiqueta.objects.get_or_create(nome=setor)
+                documento.etiquetas.add(etiqueta)
 
                 VectorService.processar_documento(documento, caminho_arquivo)
 
