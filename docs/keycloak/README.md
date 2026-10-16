@@ -1,11 +1,8 @@
 # Autenticação e Gestão de Usuários com Keycloak (Card 39)
 
-Este documento explica como o backend usa o **Keycloak** como fonte de verdade
-de identidade e como interagir com ele via **Admin REST API** para fazer o
-CRUD de usuários e ler suas permissões.
+Este documento explica como o backend usa o **Keycloak** como fonte de verdade de identidade e como interagir com ele via **Admin REST API** para fazer o CRUD de usuários e ler suas permissões.
 
-- README da prova de conceito que originou esta implementação:
-  [docs/keycloak_poc/README.md](../keycloak_poc/README.md)
+- README da prova de conceito que originou esta implementação: [docs/keycloak_poc/README.md](../keycloak_poc/README.md)
 - Manual de documentação de rotas (Swagger): [docs/api/manual-documentacao-rotas.md](../api/manual-documentacao-rotas.md)
 
 ## 1. Subindo o Keycloak
@@ -18,40 +15,30 @@ docker compose -f docker-compose.yaml up -d keycloak keycloak-db
 ```
 
 - **Dashboard do Keycloak:** http://localhost:8080
-- **Perfil administrador:** `admin` / `admin` (configurável por
-  `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` no `deploy/.env`).
-- No primeiro start o realm **`sqlutions`** é importado automaticamente de
-  [deploy/keycloak/realm-export.json](../../deploy/keycloak/realm-export.json).
-- Usuário de exemplo já criado no realm: `usuario@example.com` / `usuario`
-  (nível `basico`, setor `tecnico`). O atributo `setor` é um atributo
-  gerenciado do **perfil declarativo de usuários** do realm (componente
-  `declarative-user-profile` no realm-export).
+- **Perfil administrador:** `admin` / `admin` (configurável por `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` no `deploy/.env`).
+- No primeiro start o realm **`sqlutions`** é importado automaticamente de [deploy/keycloak/realm-export.json](../../deploy/keycloak/realm-export.json).
+- Usuário de exemplo já criado no realm: login `usuario` (ou `usuario@example.com`) e senha `usuario`, nível `basico` e setor `tecnico`. O atributo `setor` é um atributo gerenciado do **perfil declarativo de usuários** do realm (componente `declarative-user-profile` no realm-export).
 
 ## 2. Estrutura de identidade no realm `sqlutions`
 
-Não há modelagem de usuário no banco do Django: o Keycloak é a fonte da
-verdade. As regras de negócio são:
+Não há modelagem de usuário no banco do Django: o Keycloak é a fonte da verdade. As regras de negócio são:
 
 | Campo de negócio | Onde vive no Keycloak | Valores | Padrão |
 |---|---|---|---|
 | `nome` | campo `firstName` (e `lastName`) do usuário | livre | — |
-| `email` | campo `email` do usuário (também é o `username`) | e-mail | — |
+| `email` | campo `email` do usuário (nos usuários criados pelo backend, o `username` é o próprio e-mail) | e-mail | — |
 | `nivel_acesso` | **realm role**: `basico`, `comercial`, `militar`, `operador` | — | `basico` (role default do realm) |
 | `setor` | **atributo do usuário** exposto como claim `setor` no JWT via protocol mapper | `tecnico`, `normativo`, `juridico`, `qualitativo` | `tecnico` |
 | administração | realm role `admin` | — | — |
 
 Clients do realm:
 
-- `frontend` (public) — login via authorization code + PKCE; tivera o mapper
-  que copia o atributo `setor` para o claim `setor` do access token.
-- `backend` (bearer-only) — resource server: é este backend Django, que valida
-  o JWT localmente (RS256 via JWKS, `iss` e `exp`).
+- `frontend` (public) — login via authorization code + PKCE (os testes de ponta a ponta também usam direct access grants, que está ligado no client); possui um protocol mapper que copia o atributo `setor` do usuário para o claim `setor` do access token.
+- `backend` (bearer-only) — resource server: é este backend Django, que valida o JWT localmente (RS256 via JWKS, `iss` e `exp`).
 
 ## 3. Token do administrador (Admin REST API)
 
-Todas as chamadas à Admin REST API exigem um token de administrador. Nas
-variáveis do `.env` (deploy) estão as mesmas credenciais do perfil
-`admin:admin` do realm master:
+Todas as chamadas à Admin REST API exigem um token de administrador. Nas variáveis do `.env` (deploy) estão as mesmas credenciais do perfil `admin:admin` do realm master:
 
 ```bash
 # Base em uso pelo backend: http://keycloak:8080 (host local: http://localhost:8080)
@@ -67,9 +54,7 @@ TOKEN="<access_token>"
 curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/admin/realms/sqlutions/users"
 ```
 
-> O backend Django já faz isso automaticamente via
-> [django/api/services/keycloak_admin.py](../../django/api/services/keycloak_admin.py)
-> (credenciais em `KEYCLOAK_ADMIN_USERNAME` / `KEYCLOAK_ADMIN_PASSWORD`).
+> O backend Django já faz isso automaticamente via [django/api/services/keycloak_admin.py](../../django/api/services/keycloak_admin.py) (credenciais em `KEYCLOAK_ADMIN_USERNAME` / `KEYCLOAK_ADMIN_PASSWORD`).
 
 ## 4. CRUD de usuários pela Admin API
 
@@ -94,20 +79,10 @@ curl -s -X POST "$KC/admin/realms/$REALM/users" \
   }'
 ```
 
-- `temporary: true` marca a senha como **temporária**: o usuário é obrigado a
-  trocá-la no primeiro login.
-- **Atenção (Keycloak 26):** o campo `realmRoles` do payload de criação é
-  _ignorado_ — a role de nível deve ser atribuída depois, no endpoint
-  `role-mappings/realm` (ver 4.3). Por padrão de negócio, um usuário criado
-  sem roles adicionais começa como nível `basico` (role default do realm) e
-  setor `tecnico`.
-- **Atenção (perfil declarativo):** o retrato do Keycloak 26 exige
-  `firstName` **e** `lastName` preenchidos para aceitar o login direto;
-  o contrário devolve `"error": "invalid_grant", "error_description":
-  "Account is not fully set up"` (também é a mensagem vista quando há
-  required actions pendentes, ex.: senha temporária).
-- Em sucesso a resposta é `201 Created` com header
-  `Location: .../users/<id>` (o `id` é o `sub` usado pelo backend).
+- `temporary: true` marca a senha como **temporária**: o usuário é obrigado a trocá-la no primeiro login.
+- **Atenção (Keycloak 26):** o campo `realmRoles` do payload de criação é _ignorado_ — a role de nível deve ser atribuída depois, no endpoint `role-mappings/realm` (ver 4.3). Por padrão de negócio, um usuário criado sem roles adicionais começa como nível `basico` (role default do realm) e setor `tecnico`.
+- **Atenção (perfil declarativo):** o perfil declarativo do Keycloak 26 exige `firstName` **e** `lastName` preenchidos para aceitar o login direto; o contrário devolve `"error": "invalid_grant", "error_description": "Account is not fully set up"` (a mesma mensagem aparece quando há required actions pendentes, ex.: senha temporária).
+- Em sucesso a resposta é `201 Created` com header `Location: .../users/<id>` (o `id` é o `sub` usado pelo backend).
 
 ### 4.2 Ler os campos de um usuário
 
@@ -116,8 +91,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "$KC/admin/realms/$REALM/users/<id>"
 ```
 
-Retorna a `UserRepresentation`: `firstName`, `lastName`, `email`, `enabled`,
-`attributes` (onde está o `setor`), etc. Para listar/buscar usuários:
+Retorna a `UserRepresentation`: `firstName`, `lastName`, `email`, `enabled`, `attributes` (onde está o `setor`), etc. Para listar/buscar usuários:
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -135,6 +109,8 @@ curl -s -X PUT "$KC/admin/realms/$REALM/users/<id>" \
   -d '{ "firstName": "Nome Novo", "email": "novo@email.com" }'
 ```
 
+> **Atenção:** o `PUT` da Admin API substitui a **representação inteira** do usuário — campos ausentes no corpo viram valores vazios. Envie também `firstName`, `lastName` e `email` que não devem ser perdidos (o backend faz esse merge automaticamente em [django/api/services/keycloak_admin.py](../../django/api/services/keycloak_admin.py)).
+
 **Setor** (campo de negócio — atributo do usuário):
 
 ```bash
@@ -144,8 +120,7 @@ curl -s -X PUT "$KC/admin/realms/$REALM/users/<id>" \
   -d '{ "attributes": { "setor": ["juridico"] } }'
 ```
 
-**Nivel de acesso** (campo de negócio — realm role). Primeiro remova o nível
-atual, depois atribua o novo em `PUT /users/<id>/role-mappings/realm`:
+**Nível de acesso** (campo de negócio — realm role). Primeiro remova o nível atual, depois atribua o novo em `role-mappings/realm`:
 
 ```bash
 # 1. Listar roles atuais (veja 5.1) e montar o payload de remoção
@@ -162,8 +137,7 @@ curl -s -X POST "$KC/admin/realms/$REALM/users/<id>/role-mappings/realm" \
   -d '[{ "id": "<id-da-role-operador>", "name": "operador" }]'
 ```
 
-**Senha (nova) — inclusive temporária.** Endpoint dedicado
-`PUT /users/<id>/reset-password`:
+**Senha (nova) — inclusive temporária.** Endpoint dedicado `PUT /users/<id>/reset-password`:
 
 ```bash
 curl -s -X PUT "$KC/admin/realms/$REALM/users/<id>/reset-password" \
@@ -173,8 +147,7 @@ curl -s -X PUT "$KC/admin/realms/$REALM/users/<id>/reset-password" \
 ```
 
 - `temporary: true` → usuário deve trocar a senha no próximo login.
-- Alternativa sem definir senha: enviar por e-mail um link de redefinição
-  (ação `UPDATE_PASSWORD`):
+- Alternativa sem definir senha: enviar por e-mail um link de redefinição (ação `UPDATE_PASSWORD`):
 
 ```bash
 curl -s -X PUT "$KC/admin/realms/$REALM/users/<id>/execute-actions-email" \
@@ -193,7 +166,7 @@ Em sucesso responde `204 No Content`.
 
 ## 5. Lendo as permissões de um usuário
 
-### 5.1 Pelo Admin API (roles do usuário)
+### 5.1 Pela Admin API (roles do usuário)
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -209,16 +182,13 @@ Resposta (lista de roles; backend mapeia o que importa):
 ]
 ```
 
-- Se a lista contém `operador` → usuário é operador (acessa tudo e gerencia
-  requisições de acesso).
-- O `nivel_acesso` é a role entre `basico`/`comercial`/`militar`/`operador`
-  (ordinal define o grau de documento visível junto ao setor).
+- Se a lista contém `operador` → usuário é operador (acessa tudo e gerencia requisições de acesso).
+- O `nivel_acesso` é a role entre `basico`/`comercial`/`militar`/`operador` (ordinal define o grau de documento visível junto ao setor).
 - O `setor` vem do campo `attributes.setor` da resposta do usuário (4.2).
 
 ### 5.2 Pelo access token (sem chamada à Admin API)
 
-O JWT validado pelo backend já carrega as permissões (decode com
-[jwt.io](https://jwt.io) ou `GET $KC/realms/$REALM/protocol/openid-connect/userinfo`):
+O JWT validado pelo backend já carrega as permissões (decode com [jwt.io](https://jwt.io) ou `GET $KC/realms/$REALM/protocol/openid-connect/userinfo`):
 
 ```json
 {
@@ -230,14 +200,11 @@ O JWT validado pelo backend já carrega as permissões (decode com
 }
 ```
 
-No backend, depois da autenticação, `request.user` expõe `id`, `username`,
-`nome`, `email`, `nivel_acesso`, `setor` e `has_role('operador')`
-([api/authentication/keycloak.py](../../django/api/authentication/keycloak.py)).
+No backend, depois da autenticação, `request.user` expõe `id`, `username`, `nome`, `email`, `nivel_acesso`, `setor` e `has_role('operador')` ([api/authentication/keycloak.py](../../django/api/authentication/keycloak.py)).
 
 ## 6. Interagindo pelo backend (rotas novas)
 
-As rotas abaixo usam o token Bearer do Keycloak e a Admin REST API; estão
-documentadas no Swagger (**http://localhost:8000/api/docs/**):
+As rotas abaixo usam o token Bearer do Keycloak e a Admin REST API; estão documentadas no Swagger (**http://localhost:8000/api/docs/**):
 
 | Rota | Método | Quem pode | O que faz |
 |---|---|---|---|
