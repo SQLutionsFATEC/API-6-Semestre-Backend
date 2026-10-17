@@ -42,13 +42,15 @@ COPY . .
 # Garante que as pastas existam antes do Nginx tentar acessá-las
 RUN mkdir -p /app/staticfiles /app/media
 
-# Remove quebras de linha do Windows (\r) e dá permissão de execução ao entrypoint
-RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
+# Copia o entrypoint para fora de /app e ajusta CRLF/permissões
+# (evita que o volume montado - ../django:/app sobrescreva com quebras de linha do Windows)
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 8000
 
 # Script de inicialização
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # Executa o projeto 
 CMD ["gunicorn", "api.wsgi:application", "--bind", "0.0.0.0:8000"]
