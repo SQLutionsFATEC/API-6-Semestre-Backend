@@ -7,3 +7,5 @@ djangorestframework>=3.17.1
 drf-spectacular>=0.28,<1.0
 pytest>=8.0.0
 pytest-django>=4.0.0
+python-jose[cryptography]>=3.4.0
+requests>=2.31,<3.0
