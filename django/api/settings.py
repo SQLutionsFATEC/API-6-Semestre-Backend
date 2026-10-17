@@ -131,11 +131,28 @@ STATIC_URL = 'static/'
 CORS_ALLOW_ALL_ORIGINS = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Keycloak (autenticação centralizada)
+# O backend valida o access token (JWT RS256) localmente e usa a Admin REST
+# API para ler/editar usuários. O 'iss' esperado é {KEYCLOAK_URL}/realms/{realm}.
+KEYCLOAK_URL = os.environ.get('KEYCLOAK_URL', 'http://keycloak:8080').rstrip('/')
+KEYCLOAK_REALM = os.environ.get('KEYCLOAK_REALM', 'sqlutions')
+KEYCLOAK_ISSUER = os.environ.get(
+    'KEYCLOAK_ISSUER', f'{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}'
+)
+KEYCLOAK_JWKS_TTL = int(os.environ.get('KEYCLOAK_JWKS_TTL', '300'))
+
+# Client confidencial (service account) usado pela Admin REST API. O token é
+# emitido no próprio realm, com escopo limitado às roles de realm-management do
+# service account — o admin do realm master não é usado em runtime.
+KEYCLOAK_BACKEND_CLIENT_ID = os.environ.get('KEYCLOAK_BACKEND_CLIENT_ID', 'backend')
+KEYCLOAK_BACKEND_CLIENT_SECRET = os.environ.get(
+    'KEYCLOAK_BACKEND_CLIENT_SECRET', 'backend-secret'
+)
+
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'api.authentication.SessionAuthenticationComDesafio',
-        'rest_framework.authentication.BasicAuthentication',
+        'api.authentication.keycloak.KeycloakAuthentication',
     ],
 }
 

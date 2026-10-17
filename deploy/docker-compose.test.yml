@@ -47,7 +47,6 @@ services:
       - python
       - -m
       - pytest
-      - api/tests/
       - -v
       - --cov=api
       - --cov-config=.coveragerc
