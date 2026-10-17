@@ -55,6 +55,18 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "username": "service-account-backend",
+      "enabled": true,
+      "serviceAccountClientId": "backend",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "manage-users",
+          "view-realm"
+        ]
+      }
     }
   ],
   "clients": [
@@ -108,7 +120,9 @@
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
-      "bearerOnly": true,
+      "secret": "backend-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
       "protocolMappers": [
         {
           "name": "setor",

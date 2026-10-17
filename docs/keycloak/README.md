@@ -34,17 +34,17 @@ Não há modelagem de usuário no banco do Django: o Keycloak é a fonte da verd
 Clients do realm:
 
 - `frontend` (public) — login via authorization code + PKCE (os testes de ponta a ponta também usam direct access grants, que está ligado no client); possui um protocol mapper que copia o atributo `setor` do usuário para o claim `setor` do access token.
-- `backend` (bearer-only) — resource server: é este backend Django, que valida o JWT localmente (RS256 via JWKS, `iss` e `exp`).
+- `backend` (confidencial, com service account habilitado) — resource server: é este backend Django, que valida o JWT localmente (RS256 via JWKS, `iss` e `exp`) e usa o service account para chamar a Admin REST API.
 
-## 3. Token do administrador (Admin REST API)
+## 3. Token do service account (Admin REST API)
 
-Todas as chamadas à Admin REST API exigem um token de administrador. Nas variáveis do `.env` (deploy) estão as mesmas credenciais do perfil `admin:admin` do realm master:
+Todas as chamadas à Admin REST API exigem um token. O backend usa o **service account (client credentials)** do client confidencial `backend`, que vive no próprio realm `sqlutions` e cujo service account tem apenas as roles de `realm-management` necessárias para o CRUD de usuários. O perfil `admin:admin` do realm master serve **somente** para o Dashboard, na administração manual — não é usado em runtime pela aplicação.
 
 ```bash
 # Base em uso pelo backend: http://keycloak:8080 (host local: http://localhost:8080)
-curl -s -X POST "http://localhost:8080/realms/master/protocol/openid-connect/token" \
+curl -s -X POST "http://localhost:8080/realms/sqlutions/protocol/openid-connect/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=password&client_id=admin-cli&username=admin&password=admin"
+  -d "grant_type=client_credentials&client_id=backend&client_secret=backend-secret"
 ```
 
 A resposta contém `access_token`; use-o no header de todas as chamadas abaixo:
@@ -54,7 +54,9 @@ TOKEN="<access_token>"
 curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/admin/realms/sqlutions/users"
 ```
 
-> O backend Django já faz isso automaticamente via [django/api/services/keycloak_admin.py](../../django/api/services/keycloak_admin.py) (credenciais em `KEYCLOAK_ADMIN_USERNAME` / `KEYCLOAK_ADMIN_PASSWORD`).
+> O backend Django já faz isso automaticamente via [django/api/services/keycloak_admin.py](../../django/api/services/keycloak_admin.py) (credenciais em `KEYCLOAK_BACKEND_CLIENT_ID` / `KEYCLOAK_BACKEND_CLIENT_SECRET`).
+>
+> O `client_secret` padrão (`backend-secret`) está no realm-export apenas para facilitar o setup local. Em produção, rotacione o secret no Keycloak e injete o valor por variável de ambiente/secret manager.
 
 ## 4. CRUD de usuários pela Admin API
 
@@ -249,6 +251,6 @@ curl -s -X PATCH http://localhost:8000/api/usuarios/<id>/ \
 | `KEYCLOAK_URL` | `http://keycloak:8080` | base para validar JWT e chamar a Admin API |
 | `KEYCLOAK_REALM` | `sqlutions` | realm do projeto |
 | `KEYCLOAK_ISSUER` | `{KEYCLOAK_URL}/realms/{realm}` | claim `iss` esperado no token |
-| `KEYCLOAK_ADMIN_USERNAME` | `admin` | admin do realm master para a Admin REST API |
-| `KEYCLOAK_ADMIN_PASSWORD` | `admin` | senha do admin (trocar fora de dev) |
+| `KEYCLOAK_BACKEND_CLIENT_ID` | `backend` | client confidencial cujo service account acessa a Admin REST API |
+| `KEYCLOAK_BACKEND_CLIENT_SECRET` | `backend-secret` (só dev) | secret do service account (rotacionar fora de dev) |
 | `KEYCLOAK_JWKS_TTL` | `300` | intervalo de cache do JWK Set (segundos) |

@@ -4,6 +4,7 @@ Todas as chamadas HTTP são simuladas com fakes de requests, sem acesso
 real ao Keycloak."""
 
 import pytest
+from django.conf import settings
 
 from api.services import keycloak_admin
 from api.services.keycloak_admin import (
@@ -37,7 +38,7 @@ class RespostaFake:
 
 @pytest.fixture(autouse=True)
 def token_simulado(monkeypatch):
-    """Simula a obtenção do token do administrador."""
+    """Simula a obtenção do token do service account."""
     resposta = RespostaFake(
         status_code=200,
         dados={'access_token': 'token-admin', 'expires_in': 600},
@@ -82,6 +83,21 @@ def test_token_admin_obtido_e_reutilizado(token_simulado):
     assert primeiro == 'token-admin'
     assert segundo == 'token-admin'
     assert len(token_simulado) == 1  # apenas um POST de token
+
+
+def test_token_usa_client_credentials_no_realm_da_aplicacao(token_simulado):
+    """O token não pode vir do admin do realm master (grant_type=password)."""
+    obter_token_admin()
+
+    assert len(token_simulado) == 1
+    url, dados = token_simulado[0]
+    assert url.endswith(
+        '/realms/' + settings.KEYCLOAK_REALM + '/protocol/openid-connect/token'
+    )
+    assert 'master' not in url
+    assert dados['grant_type'] == 'client_credentials'
+    assert dados['client_id'] == settings.KEYCLOAK_BACKEND_CLIENT_ID
+    assert dados['client_secret'] == settings.KEYCLOAK_BACKEND_CLIENT_SECRET
 
 
 def test_criar_usuario_monta_payload_com_senha_temporaria(envio):
@@ -166,6 +182,23 @@ def test_listar_usuarios_passa_filtro_de_busca(envio):
     listar_usuarios(busca='maria', inicio=10, maximo=5)
 
     assert feitas[0]['params'] == {'search': 'maria', 'first': 10, 'max': 5}
+
+
+def test_listar_usuarios_ignora_contas_de_service_account(envio):
+    feitas, enfileirar = envio
+    enfileirar(
+        RespostaFake(
+            status_code=200,
+            dados=[
+                {'id': 'u1', 'username': 'maria@exemplo.com'},
+                {'id': 'sa1', 'username': 'service-account-backend'},
+            ],
+        )
+    )
+
+    usuarios = listar_usuarios()
+
+    assert [usuario['username'] for usuario in usuarios] == ['maria@exemplo.com']
 
 
 def test_atualizar_usuario_muda_nome_email_setor_e_senha(envio):

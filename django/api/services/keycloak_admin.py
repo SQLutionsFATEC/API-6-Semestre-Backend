@@ -1,19 +1,20 @@
 """Cliente da Admin REST API do Keycloak (CRUD de usuários e permissões).
 
 O backend usa este serviço para ler e editar usuários no Keycloak, que é a
-fonte da verdade de identidade da aplicação. A autenticação do cliente é
-feita com o perfil administrador do realm master (admin/admin por padrão),
-configurável pelas variáveis:
+fonte da verdade de identidade da aplicação. A autenticação do cliente usa o
+service account (client credentials) de um client confidencial do próprio
+realm, com apenas as roles de realm-management necessárias para o CRUD de
+usuários — nunca o admin do realm master. Configurável pelas variáveis:
 
     KEYCLOAK_URL, KEYCLOAK_REALM,
-    KEYCLOAK_ADMIN_USERNAME, KEYCLOAK_ADMIN_PASSWORD
+    KEYCLOAK_BACKEND_CLIENT_ID, KEYCLOAK_BACKEND_CLIENT_SECRET
 
 Referência da API: https://www.keycloak.org/docs-api/latest/rest-api/
 
 Endpoints usados:
 
-    POST   /realms/master/protocol/openid-connect/token
-                -> token do admin (client_id 'admin-cli')
+    POST   /realms/{realm}/protocol/openid-connect/token
+                -> token do service account (grant_type 'client_credentials')
     GET    /admin/realms/{realm}/users
     POST   /admin/realms/{realm}/users
     GET    /admin/realms/{realm}/users/{id}
@@ -33,8 +34,6 @@ import time
 import requests
 from django.conf import settings
 
-MASTER_REALM = 'master'
-ADMIN_CLIENT_ID = 'admin-cli'
 TOKEN_PATH = '/protocol/openid-connect/token'
 USERS_PATH = '/admin/realms/{realm}/users'
 
@@ -66,38 +65,39 @@ def _url_admin_realm():
     )
 
 
-def _url_token_master():
+def _url_token():
     return (
         settings.KEYCLOAK_URL.rstrip('/')
         + '/realms/'
-        + MASTER_REALM
+        + settings.KEYCLOAK_REALM
         + TOKEN_PATH
     )
 
 
 def obter_token_admin(force=False):
-    """Retorna um access token de administrador do realm master.
+    """Retorna um access token de service account para a Admin REST API.
 
-    O token é reutilizado até pouco antes de expirar, então um único POST é
-    feito por intervalo de renovação."""
+    O token é emitido no próprio realm da aplicação (grant_type
+    'client_credentials') pelo client confidencial cujo service account tem
+    apenas as roles de realm-management necessárias. É reutilizado até pouco
+    antes de expirar, então um único POST é feito por intervalo de renovação."""
     with _token_lock:
         agora = time.time()
         if not force and _token_cache['token'] and agora < _token_cache['expiracao']:
             return _token_cache['token']
 
         resposta = requests.post(
-            _url_token_master(),
+            _url_token(),
             data={
-                'grant_type': 'password',
-                'client_id': ADMIN_CLIENT_ID,
-                'username': settings.KEYCLOAK_ADMIN_USERNAME,
-                'password': settings.KEYCLOAK_ADMIN_PASSWORD,
+                'grant_type': 'client_credentials',
+                'client_id': settings.KEYCLOAK_BACKEND_CLIENT_ID,
+                'client_secret': settings.KEYCLOAK_BACKEND_CLIENT_SECRET,
             },
             timeout=15,
         )
         if resposta.status_code != 200:
             raise KeycloakAdminException(
-                'Não foi possível obter o token do administrador no Keycloak.',
+                'Não foi possível autenticar o service account na Admin API do Keycloak.',
                 codigo_status=resposta.status_code,
                 resposta=resposta.text,
             )
@@ -146,13 +146,23 @@ def _verificar(resposta, descricao):
 # ============================================================
 
 def listar_usuarios(busca=None, inicio=0, maximo=100):
-    """Lista os usuários do realm, opcionalmente filtrando por busca textual."""
+    """Lista os usuários do realm, opcionalmente filtrando por busca textual.
+
+    Contas de service account (prefixo 'service-account-') são de
+    infraestrutura, não usuários da aplicação: o Keycloak 26 já costuma
+    omiti-las da listagem, mas o filtro garante que nunca apareçam nas telas
+    de administração."""
     resposta = _requisitar(
         'GET',
         _url_admin_realm() + '/users',
         params={'search': busca or '', 'first': inicio, 'max': maximo},
     )
-    return _verificar(resposta, 'listar usuários').json()
+    usuarios = _verificar(resposta, 'listar usuários').json()
+    return [
+        usuario
+        for usuario in usuarios
+        if not str(usuario.get('username', '')).startswith('service-account-')
+    ]
 
 
 def obter_usuario(id_usuario):

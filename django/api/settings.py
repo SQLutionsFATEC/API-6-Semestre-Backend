@@ -141,9 +141,13 @@ KEYCLOAK_ISSUER = os.environ.get(
 )
 KEYCLOAK_JWKS_TTL = int(os.environ.get('KEYCLOAK_JWKS_TTL', '300'))
 
-# Credenciais do administrador usadas pela Admin REST API (realm master)
-KEYCLOAK_ADMIN_USERNAME = os.environ.get('KEYCLOAK_ADMIN_USERNAME', 'admin')
-KEYCLOAK_ADMIN_PASSWORD = os.environ.get('KEYCLOAK_ADMIN_PASSWORD', 'admin')
+# Client confidencial (service account) usado pela Admin REST API. O token é
+# emitido no próprio realm, com escopo limitado às roles de realm-management do
+# service account — o admin do realm master não é usado em runtime.
+KEYCLOAK_BACKEND_CLIENT_ID = os.environ.get('KEYCLOAK_BACKEND_CLIENT_ID', 'backend')
+KEYCLOAK_BACKEND_CLIENT_SECRET = os.environ.get(
+    'KEYCLOAK_BACKEND_CLIENT_SECRET', 'backend-secret'
+)
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
