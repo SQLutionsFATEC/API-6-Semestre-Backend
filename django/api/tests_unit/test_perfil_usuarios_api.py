@@ -261,13 +261,18 @@ def test_usuario_detalhe_patch_troca_senha_temporaria(mock_admin):
     assert dados['setor'] == 'qualitativo'
 
 
-def test_usuario_detalhe_deleta(mock_admin):
+@pytest.mark.django_db(databases=['default', 'tombstones'])
+def test_usuario_detalhe_deleta(mock_admin, settings):
+    settings.EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
     removidos = []
 
     def deletar(id_usuario):
         removidos.append(id_usuario)
 
-    mock_admin(deletar_usuario=deletar)
+    mock_admin(
+        obter_usuario=lambda id_usuario: dict(USUARIO_REPRESENTACAO),
+        deletar_usuario=deletar,
+    )
     cliente = _cliente_com()
     cliente.force_authenticate(user=KeycloakUser(CLAIMS_ADMIN))
 

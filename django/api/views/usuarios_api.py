@@ -5,21 +5,30 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from api.permissions import IsAdminRole
+from api.models import UsuarioDeletado
+from api.permissions import IsAdminRole, IsOperadorRole
 from api.serializers.usuario_serializer import (
     UsuarioCreateSerializer,
     UsuarioSerializer,
     UsuarioUpdateSerializer,
 )
-from api.services import keycloak_admin
+from api.services import delecao_usuario, keycloak_admin
 
 from .perfil_api import _resposta_erro_keycloak
 
 
 class UsuariosView(APIView):
-    """Lista os usuários do realm e cria novos usuários (somente role admin)."""
+    """Lista/cria usuários (admin) e deleta a própria conta (autenticado)."""
 
     permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get_permissions(self):
+        # DELETE /api/usuarios/ é autoatendimento: qualquer usuário
+        # autenticado pode deletar a própria conta. As demais operações
+        # continuam restritas à role admin.
+        if self.request.method == 'DELETE':
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsAdminRole()]
 
     @extend_schema(
         summary='Lista usuários do Keycloak (admin)',
@@ -96,11 +105,49 @@ class UsuariosView(APIView):
             UsuarioSerializer(usuario).data, status=status.HTTP_201_CREATED
         )
 
+    @extend_schema(
+        operation_id='usuarios_delete_self',
+        summary='Deleta a própria conta permanentemente',
+        description=(
+            'Remove fisicamente o usuário autenticado do Keycloak (nome, '
+            'e-mail, senha e roles) e registra um tombstone anonimizado em um '
+            'banco independente, impedindo que a conta reapareça caso um backup '
+            'do Keycloak seja restaurado. Um e-mail de comprovação da exclusão '
+            'é enviado ao endereço cadastrado. Requer token Bearer; retorna 404 '
+            'se o usuário do token já não existir no Keycloak.'
+        ),
+        responses={
+            204: OpenApiResponse(description='Conta deletada com sucesso.'),
+            401: OpenApiResponse(description='Usuário não autenticado.'),
+            404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
+            502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
+        },
+    )
+    def delete(self, request):
+        try:
+            delecao_usuario.deletar_usuario(
+                request.user.id,
+                origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO,
+            )
+        except (keycloak_admin.KeycloakAdminException, requests.RequestException) as erro:
+            return _resposta_erro_keycloak(erro)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class UsuarioDetalheView(APIView):
-    """Lê, modifica e deleta um usuário do realm (somente role admin)."""
+    """Lê, modifica e deleta um usuário do realm.
+
+    Leitura e modificação exigem a role admin; a deleção exige a role
+    operador, conforme o critério de autorização da exclusão de usuários.
+    """
 
     permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get_permissions(self):
+        if self.request.method == 'DELETE':
+            return [IsAuthenticated(), IsOperadorRole()]
+        return [IsAuthenticated(), IsAdminRole()]
 
     def _buscar(self, id_usuario):
         usuario = keycloak_admin.obter_usuario(id_usuario)
@@ -164,22 +211,30 @@ class UsuarioDetalheView(APIView):
         return Response(UsuarioSerializer(usuario).data, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary='Deleta um usuário do Keycloak (admin)',
+        operation_id='usuarios_delete_detail',
+        summary='Deleta um usuário do Keycloak (operador)',
         description=(
-            'Remove o usuário do realm do Keycloak. Acesso restrito à realm '
-            'role admin.'
+            'Remove fisicamente o usuário especificado do Keycloak e registra '
+            'um tombstone anonimizado em um banco independente, impedindo que '
+            'ele reapareça após a restauração de um backup. Um e-mail de '
+            'comprovação é enviado ao endereço cadastrado. '
+            'Acesso restrito à realm role operador (a role admin isolada não '
+            'é suficiente).'
         ),
         responses={
             204: OpenApiResponse(description='Usuário deletado com sucesso.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Usuário sem a role admin.'),
+            403: OpenApiResponse(description='Usuário sem a role operador.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
     )
     def delete(self, request, id_usuario):
         try:
-            keycloak_admin.deletar_usuario(id_usuario)
+            delecao_usuario.deletar_usuario(
+                id_usuario,
+                origem=UsuarioDeletado.ORIGEM_OPERADOR,
+            )
         except (keycloak_admin.KeycloakAdminException, requests.RequestException) as erro:
             return _resposta_erro_keycloak(erro)
 
