@@ -174,6 +174,21 @@ KEYCLOAK_BACKEND_CLIENT_SECRET = os.environ.get(
     'KEYCLOAK_BACKEND_CLIENT_SECRET', 'backend-secret'
 )
 
+# E-mail: usado para enviar a comprovação de exclusão de conta (LGPD).
+# O padrão é o console (desenvolvimento). Em produção, configure SMTP pelas
+# variáveis EMAIL_*.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend'
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'false').lower() in ('1', 'true', 'yes')
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL', 'nao-responda@sqlutions.example.com'
+)
+
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': [
