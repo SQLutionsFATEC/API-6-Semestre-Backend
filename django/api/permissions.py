@@ -13,3 +13,20 @@ class IsAdminRole(BasePermission):
         usuario = request.user
         tem_verificacao = getattr(usuario, 'has_role', None)
         return bool(tem_verificacao and usuario.has_role('admin'))
+
+
+class IsOperador(BasePermission):
+    """Permite alterações em documentos somente ao nível Operador."""
+
+    message = 'Somente usuários com nível Operador podem alterar documentos.'
+
+    def has_permission(self, request, view):
+        usuario = request.user
+        tem_role = getattr(usuario, 'has_role', None)
+        if tem_role and usuario.has_role('operador'):
+            return True
+
+        nivel = getattr(usuario, 'nivel_acesso', None)
+        if nivel is None:
+            nivel = getattr(usuario, 'nivel', None)
+        return isinstance(nivel, str) and nivel.lower() == 'operador'
