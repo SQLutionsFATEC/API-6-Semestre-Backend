@@ -5,8 +5,99 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from api.models import Documento, Etiqueta
+
+
+class DocumentoAutorizacaoTest(TestCase):
+    def setUp(self):
+        self.documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Manual.pdf',
+            setor='TI',
+            nivel='basico',
+            data='documentos/manual.pdf',
+        )
+        User = get_user_model()
+        self.usuario_basico = User.objects.create_user(
+            username='usuario_basico',
+            password='senha123',
+        )
+        self.usuario_basico.nivel = 'Basico'
+        self.usuario_basico.setor = 'TI'
+
+        self.usuario_operador = User.objects.create_user(
+            username='usuario_operador',
+            password='senha123',
+        )
+        self.usuario_operador.nivel = 'Operador'
+        self.usuario_operador.setor = 'TI'
+        self.client = APIClient()
+
+    def test_listagem_sem_token_retorna_401(self):
+        resposta = self.client.get('/api/documentos/')
+
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_detalhe_sem_token_retorna_401(self):
+        resposta = self.client.get(
+            f'/api/documentos/{self.documento.id_documento}/'
+        )
+
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_upload_sem_nivel_operador_retorna_403(self):
+        self.client.force_authenticate(user=self.usuario_basico)
+
+        resposta = self.client.post('/api/documentos/', {})
+
+        self.assertEqual(resposta.status_code, 403)
+
+    def test_edicao_sem_nivel_operador_retorna_403(self):
+        self.client.force_authenticate(user=self.usuario_basico)
+
+        resposta = self.client.patch(
+            f'/api/documentos/{self.documento.id_documento}/',
+            data={'nome': 'Manual atualizado.pdf'},
+            format='json',
+        )
+
+        self.assertEqual(resposta.status_code, 403)
+
+    def test_upload_e_edicao_com_nivel_operador_sao_autorizados(self):
+        self.client.force_authenticate(user=self.usuario_operador)
+
+        with patch(
+            'api.views.documento_api.MLService.classificar_documento',
+            return_value='TI',
+        ), patch(
+            'api.views.documento_api.VectorService.processar_documento',
+        ):
+            arquivo = SimpleUploadedFile(
+                'manual.pdf',
+                b'%PDF-1.4 documento de teste',
+                content_type='application/pdf',
+            )
+            resposta_upload = self.client.post(
+                '/api/documentos/',
+                data={
+                    'nome': 'Novo manual.pdf',
+                    'nivel': 'basico',
+                    'data': arquivo,
+                },
+                format='multipart',
+            )
+
+        self.assertEqual(resposta_upload.status_code, 201)
+        id_documento = resposta_upload.json()['id_documento']
+        resposta_edicao = self.client.patch(
+            f'/api/documentos/{id_documento}/',
+            data={'nome': 'Manual editado.pdf'},
+            format='json',
+        )
+
+        self.assertEqual(resposta_edicao.status_code, 204)
 
 
 class DocumentoApiTest(TestCase):
