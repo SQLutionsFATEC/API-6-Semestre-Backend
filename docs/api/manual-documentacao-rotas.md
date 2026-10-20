@@ -167,11 +167,7 @@ O registro expõe `data_criacao`, preenchida uma única vez, e `data_atualizacao
 
 ## 8. Deleção de usuários (LGPD)
 
-As rotas de exclusão removem o usuário fisicamente do Keycloak e registram um
-**tombstone anonimizado** (SHA-256 do id) em um banco independente. Esse
-registro impede que a conta reapareça após a restauração de um backup. O fluxo
-completo de backup/restauração está em
-[backup-restore.md](backup-restore.md).
+As rotas de exclusão removem o usuário fisicamente do Keycloak e registram um **tombstone anonimizado** (SHA-256 do id) em um banco independente. Esse registro impede que a conta reapareça após a restauração de um backup. O fluxo completo de backup/restauração está em [backup-restore.md](backup-restore.md).
 
 | Rota | Método | Quem pode | Respostas |
 |---|---|---|---|
@@ -180,13 +176,9 @@ completo de backup/restauração está em
 
 - A barra final é opcional nas duas rotas (`/api/usuarios` também funciona).
 - `404` indica que o usuário não existe no Keycloak; o tombstone não é criado.
-- `403` na rota por id indica que o token não possui a role `operador` (a role
-  `admin` isolada não é suficiente).
-- `502` indica falha de comunicação com o Keycloak. Se a falha ocorrer depois
-  do tombstone, ele é preservado: o usuário não ressuscita em um restore.
-- O e-mail de comprovação da exclusão é enviado ao endereço cadastrado. Em
-  desenvolvimento o backend de e-mail padrão é o console; em produção
-  configure `EMAIL_BACKEND`/`EMAIL_HOST` (ver `deploy/.env.example`).
+- `403` na rota por id indica que o token não possui a role `operador` (a role `admin` isolada não é suficiente).
+- `502` indica falha de comunicação com o Keycloak. Se a falha ocorrer depois do tombstone, ele é preservado: o usuário não ressuscita em um restore.
+- O e-mail de comprovação da exclusão é enviado ao endereço cadastrado. Em desenvolvimento o backend de e-mail padrão é o console; em produção configure `EMAIL_BACKEND`/`EMAIL_HOST` (ver `deploy/.env.example`).
 
 Declare no Swagger os status realmente retornados:
 
@@ -210,9 +202,7 @@ def delete(self, request, id_usuario):
     ...
 ```
 
-> Use `operation_id` explícito nas duas rotas de deleção: sem ele, o
-> `drf-spectacular` gera o mesmo id de operação para ambas e o schema emite
-> aviso de colisão.
+> Use `operation_id` explícito nas duas rotas de deleção: sem ele, o `drf-spectacular` gera o mesmo id de operação para ambas e o schema emite aviso de colisão.
 
 ## 9. Convenções do projeto
 

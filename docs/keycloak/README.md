@@ -219,9 +219,7 @@ As rotas abaixo usam o token Bearer do Keycloak e a Admin REST API; estão docum
 | `/api/usuarios/` | DELETE | usuário autenticado | deleta a própria conta (autoatendimento) |
 | `/api/usuarios/{id_usuario}/` | DELETE | role `operador` | deleta o usuário do realm e grava tombstone |
 
-> As rotas de deleção também aceitam o caminho sem barra final
-> (`/api/usuarios` e `/api/usuarios/{id_usuario}`). A deleção por id exige a
-> role `operador`; a role `admin` isolada não é suficiente.
+> As rotas de deleção também aceitam o caminho sem barra final (`/api/usuarios` e `/api/usuarios/{id_usuario}`). A deleção por id exige a role `operador`; a role `admin` isolada não é suficiente.
 
 Exemplos de uso para desenvolvimento (com token do **usuário**, não do admin):
 
@@ -251,18 +249,11 @@ curl -s -X PATCH http://localhost:8000/api/usuarios/<id>/ \
 
 ## 7. Exclusão de usuários e banco de tombstones
 
-A exclusão é **física**: o usuário é removido do Keycloak (nome, e-mail,
-senha, roles e atributos). Para garantir que ele não volte após a restauração
-de um backup, cada exclusão grava um tombstone em um banco independente
-(`tombstone-db`, alias Django `tombstones`). O tombstone contém apenas o
-SHA-256 do id do Keycloak, a data e a origem (`autoatendimento`/`operador`) —
-nunca nome, e-mail ou o id em claro.
+A exclusão é **física**: o usuário é removido do Keycloak (nome, e-mail, senha, roles e atributos). Para garantir que ele não volte após a restauração de um backup, cada exclusão grava um tombstone em um banco independente (`tombstone-db`, alias Django `tombstones`). O tombstone contém apenas o SHA-256 do id do Keycloak, a data e a origem (`autoatendimento`/`operador`) — nunca nome, e-mail ou o id em claro.
 
 - `DELETE /api/usuarios/` — o próprio usuário autenticado deleta a conta.
-- `DELETE /api/usuarios/{id}/` — exige a realm role `operador`; retorna `403`
-  sem ela e `404` se o usuário não existir.
-- O e-mail de comprovação da exclusão é enviado ao endereço cadastrado
-  (LGPD). Em dev o backend de e-mail é o console; configure SMTP em produção.
+- `DELETE /api/usuarios/{id}/` — exige a realm role `operador`; retorna `403` sem ela e `404` se o usuário não existir.
+- O e-mail de comprovação da exclusão é enviado ao endereço cadastrado (LGPD). Em dev o backend de e-mail é o console; configure SMTP em produção.
 
 Após restaurar um backup do Keycloak, execute:
 
@@ -271,10 +262,7 @@ cd deploy
 docker compose exec -T backend python manage.py purge_deleted_users --verificar --aguardar 180
 ```
 
-O comando remove do Keycloak restaurado todos os usuários tombstoned e falha
-(exit code 1) se algum deles continuar existindo. Os scripts de backup e
-restauração que automatizam esse fluxo estão documentados em
-[docs/api/backup-restore.md](../api/backup-restore.md).
+O comando remove do Keycloak restaurado todos os usuários tombstoned e falha (exit code 1) se algum deles continuar existindo. Os scripts de backup e restauração que automatizam esse fluxo estão documentados em [docs/api/backup-restore.md](../api/backup-restore.md).
 
 ## 8. Variáveis de ambiente do backend
 

@@ -1,18 +1,12 @@
 # Backup, restauração e direito ao esquecimento (Card 44)
 
-Este documento descreve como a aplicação garante que um usuário deletado
-**não volte** depois de restaurar um backup do Keycloak ou do banco da
-aplicação.
+Este documento descreve como a aplicação garante que um usuário deletado **não volte** depois de restaurar um backup do Keycloak ou do banco da aplicação.
 
 ## 1. Por que um banco separado?
 
-O Keycloak é a fonte da verdade da identidade: nome, e-mail, senha, roles e
-atributos vivem no banco do Keycloak, não no banco do Django. Se alguém
-restaurar um backup antigo do Keycloak, um usuário que pediu exclusão pode
-reaparecer.
+O Keycloak é a fonte da verdade da identidade: nome, e-mail, senha, roles e atributos vivem no banco do Keycloak, não no banco do Django. Se alguém restaurar um backup antigo do Keycloak, um usuário que pediu exclusão pode reaparecer.
 
-Para impedir isso existe um **banco independente de tombstones**
-(alias Django `tombstones`, serviço `tombstone-db` no compose):
+Para impedir isso existe um **banco independente de tombstones** (alias Django `tombstones`, serviço `tombstone-db` no compose):
 
 ```text
 ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────────┐
@@ -24,9 +18,7 @@ Para impedir isso existe um **banco independente de tombstones**
         └──── backup/restore ──────┴──── NUNCA é sobrescrito ───┘
 ```
 
-O banco de tombstones não entra no fluxo normal de restauração. O script de
-restore apenas **mescla** os tombstones do backup (união), de modo que uma
-restauração antiga não consiga apagar exclusões mais recentes.
+O banco de tombstones não entra no fluxo normal de restauração. O script de restore apenas **mescla** os tombstones do backup (união), de modo que uma restauração antiga não consiga apagar exclusões mais recentes.
 
 ## 2. Anonimização
 
@@ -38,20 +30,13 @@ O tombstone guarda somente:
 | `deletado_em` | data/hora da exclusão |
 | `origem` | `autoatendimento` ou `operador` |
 
-O id, o nome e o e-mail **nunca** são gravados nesse banco. Como o id do
-Keycloak é um UUID (alta entropia), o hash não é reversível na prática e o
-banco de tombstones não contém dado pessoal diretamente identificável.
+O id, o nome e o e-mail **nunca** são gravados nesse banco. Como o id do Keycloak é um UUID (alta entropia), o hash não é reversível na prática e o banco de tombstones não contém dado pessoal diretamente identificável.
 
-A exclusão física no Keycloak remove nome, e-mail, senha, roles, atributos e
-consentimentos associados à conta. O e-mail de comprovação da exclusão
-(LGPD) é enviado ao endereço lido no momento da exclusão; o endereço não é
-persistido no banco de tombstones.
+A exclusão física no Keycloak remove nome, e-mail, senha, roles, atributos e consentimentos associados à conta. O e-mail de comprovação da exclusão (LGPD) é enviado ao endereço lido no momento da exclusão; o endereço não é persistido no banco de tombstones.
 
 ## 3. Scripts
 
-Os scripts ficam em `deploy/scripts/` e usam o `deploy/docker-compose.yaml`.
-Eles assumem os serviços `postgres`, `keycloak-db`, `tombstone-db`, `keycloak`
-e `backend` do compose de desenvolvimento/POC.
+Os scripts ficam em `deploy/scripts/` e usam o `deploy/docker-compose.yaml`. Eles assumem os serviços `postgres`, `keycloak-db`, `tombstone-db`, `keycloak` e `backend` do compose de desenvolvimento/POC.
 
 ### 3.1 Backup
 
@@ -74,8 +59,7 @@ O diretório gerado contém:
 | `SHA256SUMS` | checksums dos arquivos |
 | `manifest.json` | data, commit e lista de arquivos |
 
-O script valida os dumps com `pg_restore --list` antes de considerá-los
-válidos.
+O script valida os dumps com `pg_restore --list` antes de considerá-los válidos.
 
 ### 3.2 Restauração
 
@@ -92,8 +76,7 @@ Fluxo do script:
 3. restaura `app.dump` e `keycloak.dump` com `pg_restore --clean`;
 4. restaura `media.tar.gz`;
 5. aplica as migrations (inclusive `--database=tombstones`);
-6. copia `tombstones.csv` para o banco independente e faz
-   `INSERT ... ON CONFLICT DO NOTHING` (união, nunca remoção);
+6. copia `tombstones.csv` para o banco independente e faz `INSERT ... ON CONFLICT DO NOTHING` (união, nunca remoção);
 7. sobe o Keycloak e o backend;
 8. executa:
 
@@ -103,14 +86,11 @@ python manage.py purge_deleted_users --verificar --aguardar 180
 
 O comando `purge_deleted_users`:
 
-- lista **todos** os usuários do Keycloak restaurado (paginando antes de
-  deletar, para a paginação não pular ninguém);
+- lista **todos** os usuários do Keycloak restaurado (paginando antes de deletar, para a paginação não pular ninguém);
 - calcula o SHA-256 de cada id e deleta quem está no banco de tombstones;
-- com `--verificar`, relê o Keycloak e termina com **exit code 1** se algum
-  usuário deletado ainda existir.
+- com `--verificar`, relê o Keycloak e termina com **exit code 1** se algum usuário deletado ainda existir.
 
-Se a verificação falhar, o restore termina com erro e a restauração não é
-considerada concluída.
+Se a verificação falhar, o restore termina com erro e a restauração não é considerada concluída.
 
 ## 4. Prova de conceito (demonstração)
 
@@ -135,8 +115,7 @@ bash scripts/backup.sh
 bash scripts/restore.sh backups/<timestamp> --yes
 ```
 
-Na etapa 5, o `pg_restore` traz o usuário de volta por alguns segundos, mas o
-comando de purga o remove novamente e imprime:
+Na etapa 5, o `pg_restore` traz o usuário de volta por alguns segundos, mas o comando de purga o remove novamente e imprime:
 
 ```text
 Verificação concluída: nenhum usuário deletado foi restaurado.
@@ -164,17 +143,8 @@ docker compose exec -T backend python manage.py purge_deleted_users --dry-run
 
 ## 6. Limitações e cuidados
 
-- **O banco de tombstones é a garantia.** Se ele for perdido ou restaurado
-  para um estado antigo, um usuário deletado pode voltar. Faça backup dele
-  separadamente, com retenção append-only, e restrinja o acesso.
-- **Nunca restaure `tombstones.dump` por cima do banco vivo.** O fluxo do
-  `restore.sh` usa o CSV com união justamente para não remover tombstones
-  mais recentes.
-- O hash permite confirmar se um UUID conhecido foi deletado (ataque de
-  confirmação), mas não revela a identidade a partir do banco. UUIDs têm
-  entropia suficiente para inviabilizar busca por força bruta.
-- Logs de eventos/auditoria do Keycloak e de proxies podem reter o id do
-  usuário; a política de retenção desses logs é uma decisão operacional.
-- O e-mail de comprovação é *best-effort*: a exclusão física já ocorreu
-  quando ele é enviado. Falhas de SMTP são registradas no log, não desfazem a
-  exclusão. Em produção, configure um SMTP real.
+- **O banco de tombstones é a garantia.** Se ele for perdido ou restaurado para um estado antigo, um usuário deletado pode voltar. Faça backup dele separadamente, com retenção append-only, e restrinja o acesso.
+- **Nunca restaure `tombstones.dump` por cima do banco vivo.** O fluxo do `restore.sh` usa o CSV com união justamente para não remover tombstones mais recentes.
+- O hash permite confirmar se um UUID conhecido foi deletado (ataque de confirmação), mas não revela a identidade a partir do banco. UUIDs têm entropia suficiente para inviabilizar busca por força bruta.
+- Logs de eventos/auditoria do Keycloak e de proxies podem reter o id do usuário; a política de retenção desses logs é uma decisão operacional.
+- O e-mail de comprovação é *best-effort*: a exclusão física já ocorreu quando ele é enviado. Falhas de SMTP são registradas no log, não desfazem a exclusão. Em produção, configure um SMTP real.
