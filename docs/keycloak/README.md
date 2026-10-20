@@ -216,7 +216,12 @@ As rotas abaixo usam o token Bearer do Keycloak e a Admin REST API; estão docum
 | `/api/usuarios/` | POST | role `admin` | cria usuário com senha temporária, nivel_acesso e setor |
 | `/api/usuarios/{id_usuario}/` | GET | role `admin` | lê campos e permissões de um usuário |
 | `/api/usuarios/{id_usuario}/` | PATCH | role `admin` | altera campos (incl. setor, nivel_acesso e senha temporária) |
-| `/api/usuarios/{id_usuario}/` | DELETE | role `admin` | deleta o usuário do realm |
+| `/api/usuarios/` | DELETE | usuário autenticado | deleta a própria conta (autoatendimento) |
+| `/api/usuarios/{id_usuario}/` | DELETE | role `operador` | deleta o usuário do realm e grava tombstone |
+
+> As rotas de deleção também aceitam o caminho sem barra final
+> (`/api/usuarios` e `/api/usuarios/{id_usuario}`). A deleção por id exige a
+> role `operador`; a role `admin` isolada não é suficiente.
 
 Exemplos de uso para desenvolvimento (com token do **usuário**, não do admin):
 
@@ -244,7 +249,34 @@ curl -s -X PATCH http://localhost:8000/api/usuarios/<id>/ \
   -d '{ "nivel_acesso": "operador", "senha": "trocando-123", "senha_temporaria": true }'
 ```
 
-## 7. Variáveis de ambiente do backend
+## 7. Exclusão de usuários e banco de tombstones
+
+A exclusão é **física**: o usuário é removido do Keycloak (nome, e-mail,
+senha, roles e atributos). Para garantir que ele não volte após a restauração
+de um backup, cada exclusão grava um tombstone em um banco independente
+(`tombstone-db`, alias Django `tombstones`). O tombstone contém apenas o
+SHA-256 do id do Keycloak, a data e a origem (`autoatendimento`/`operador`) —
+nunca nome, e-mail ou o id em claro.
+
+- `DELETE /api/usuarios/` — o próprio usuário autenticado deleta a conta.
+- `DELETE /api/usuarios/{id}/` — exige a realm role `operador`; retorna `403`
+  sem ela e `404` se o usuário não existir.
+- O e-mail de comprovação da exclusão é enviado ao endereço cadastrado
+  (LGPD). Em dev o backend de e-mail é o console; configure SMTP em produção.
+
+Após restaurar um backup do Keycloak, execute:
+
+```bash
+cd deploy
+docker compose exec -T backend python manage.py purge_deleted_users --verificar --aguardar 180
+```
+
+O comando remove do Keycloak restaurado todos os usuários tombstoned e falha
+(exit code 1) se algum deles continuar existindo. Os scripts de backup e
+restauração que automatizam esse fluxo estão documentados em
+[docs/api/backup-restore.md](../api/backup-restore.md).
+
+## 8. Variáveis de ambiente do backend
 
 | Variável | Padrão | Uso |
 |---|---|---|
@@ -254,3 +286,10 @@ curl -s -X PATCH http://localhost:8000/api/usuarios/<id>/ \
 | `KEYCLOAK_BACKEND_CLIENT_ID` | `backend` | client confidencial cujo service account acessa a Admin REST API |
 | `KEYCLOAK_BACKEND_CLIENT_SECRET` | `backend-secret` (só dev) | secret do service account (rotacionar fora de dev) |
 | `KEYCLOAK_JWKS_TTL` | `300` | intervalo de cache do JWK Set (segundos) |
+| `DELETED_USERS_DB_NAME` | `deleted_users_db` | banco independente de tombstones |
+| `DELETED_USERS_DB_USER` | mesmo do banco da aplicação | usuário do banco de tombstones |
+| `DELETED_USERS_DB_PASSWORD` | mesma do banco da aplicação | senha do banco de tombstones |
+| `DELETED_USERS_DB_HOST` | `tombstone-db` | host do banco de tombstones |
+| `DELETED_USERS_DB_PORT` | `5432` | porta do banco de tombstones |
+| `EMAIL_BACKEND` | console (dev) | backend de e-mail da comprovação de exclusão |
+| `DEFAULT_FROM_EMAIL` | `nao-responda@sqlutions.example.com` | remetente da comprovação |
