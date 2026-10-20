@@ -21,6 +21,7 @@ from api.serializers import EtiquetaSerializer
 from api.services.ml_service import MLService
 from api.services.vector_service import VectorService
 from api.services.authorization_service import verificar_acesso
+from api.permissions import IsOperador
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
@@ -34,9 +35,21 @@ class DocumentoViewSet(ModelViewSet):
     serializer_class = DocumentoSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     lookup_field = "id_documento"
+
+    def get_permissions(self):
+        permissions = [IsAuthenticated]
+        if self.action in {
+            'create',
+            'update',
+            'partial_update',
+            'destroy',
+            'vincular_etiqueta',
+        }:
+            permissions.append(IsOperador)
+        return [permission() for permission in permissions]
 
     @extend_schema(
         request={'multipart/form-data': DocumentoSerializer},
