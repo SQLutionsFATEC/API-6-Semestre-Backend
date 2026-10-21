@@ -124,7 +124,6 @@ class DocumentoViewSet(ModelViewSet):
         responses={
             200: OpenApiResponse(description="Documento retornado com sucesso."),
             401: OpenApiResponse(description="Usuário não autenticado."),
-            403: OpenApiResponse(description="Usuário sem permissão de acesso ao documento."),
             404: OpenApiResponse(description="Documento não encontrado."),
         },
     )
@@ -134,15 +133,16 @@ class DocumentoViewSet(ModelViewSet):
         setor_usuario = getattr(request.user, 'setor', None)
         nivel_usuario = getattr(request.user, 'nivel', None)
 
-        if not verificar_acesso(
+        acesso_permitido = verificar_acesso(
             setor_usuario, nivel_usuario, documento.setor, documento.nivel
-        ):
-            raise PermissionDenied(
-                "Você não tem permissão para acessar este documento."
-            )
+        )
 
         serializer = self.get_serializer(documento)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        dados = serializer.data
+        if not acesso_permitido:
+            dados.pop('data', None)
+
+        return Response(dados, status=status.HTTP_200_OK)
 
     # ========================================================
     # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&data_atualizacao={data_atualizacao}&setor={setor}&contexto={contexto}&page={numero da pagina}
