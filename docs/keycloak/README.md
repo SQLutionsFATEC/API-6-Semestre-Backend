@@ -2,7 +2,7 @@
 
 Este documento explica como o backend usa o **Keycloak** como fonte de verdade de identidade e como interagir com ele via **Admin REST API** para fazer o CRUD de usuários e ler suas permissões.
 
-- README da prova de conceito que originou esta implementação: [docs/keycloak_poc/README.md](../keycloak_poc/README.md)
+- README da prova de conceito original do Keycloak, que originou esta implementação: [docs/keycloak_poc/README.md](../keycloak_poc/README.md)
 - Manual de documentação de rotas (Swagger): [docs/api/manual-documentacao-rotas.md](../api/manual-documentacao-rotas.md)
 
 ## 1. Subindo o Keycloak

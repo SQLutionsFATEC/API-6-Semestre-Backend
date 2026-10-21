@@ -36,7 +36,7 @@ A exclusão física no Keycloak remove nome, e-mail, senha, roles, atributos e c
 
 ## 3. Scripts
 
-Os scripts ficam em `deploy/scripts/` e usam o `deploy/docker-compose.yaml`. Eles assumem os serviços `postgres`, `keycloak-db`, `tombstone-db`, `keycloak` e `backend` do compose de desenvolvimento/POC.
+Os scripts ficam em `deploy/scripts/` e usam o `deploy/docker-compose.yaml`. Eles assumem os serviços `postgres`, `keycloak-db`, `tombstone-db`, `keycloak` e `backend` do compose de desenvolvimento usado na demonstração.
 
 ### 3.1 Backup
 
@@ -60,6 +60,8 @@ O diretório gerado contém:
 | `manifest.json` | data, commit e lista de arquivos |
 
 O script valida os dumps com `pg_restore --list` antes de considerá-los válidos.
+
+O `backup.sh` é completo e sob demanda: o RPO do banco de tombstones é o intervalo entre duas execuções. Uma proposta de backup incremental por exclusão (não implementada) está descrita em [backup-incremental-tombstones.md](backup-incremental-tombstones.md).
 
 ### 3.2 Restauração
 
@@ -92,7 +94,7 @@ O comando `purge_deleted_users`:
 
 Se a verificação falhar, o restore termina com erro e a restauração não é considerada concluída.
 
-## 4. Prova de conceito (demonstração)
+## 4. Demonstração ponta a ponta
 
 Sequência sugerida para apresentar o critério:
 
