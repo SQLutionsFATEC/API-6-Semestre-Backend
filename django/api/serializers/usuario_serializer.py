@@ -69,7 +69,7 @@ class UsuarioPerfilUpdateSerializer(serializers.Serializer):
     """Atualização do próprio perfil: somente nome e email."""
 
     nome = serializers.CharField(
-        required=False, 
+        required=False,
         max_length=255,
         validators=[
             RegexValidator(
