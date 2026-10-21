@@ -138,7 +138,7 @@ KEYCLOAK_URL = os.environ.get('KEYCLOAK_URL', 'http://keycloak:8080').rstrip('/'
 KEYCLOAK_REALM = os.environ.get('KEYCLOAK_REALM', 'sqlutions')
 KEYCLOAK_ISSUER = os.environ.get(
     'KEYCLOAK_ISSUER', 
-    f'http://localhost:8080/realms/{KEYCLOAK_REALM}'
+    f'http://localhost:8080/realms/{KEYCLOAK_REALM}',
 )
 KEYCLOAK_JWKS_TTL = int(os.environ.get('KEYCLOAK_JWKS_TTL', '300'))
 
