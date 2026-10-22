@@ -248,9 +248,9 @@ curl -s -X PATCH http://localhost:8000/api/usuarios/<id>/ \
 
 | Variável | Padrão | Uso |
 |---|---|---|
-| `KEYCLOAK_URL` | `http://keycloak:8080` | base para validar JWT e chamar a Admin API |
+| `KEYCLOAK_URL` | `http://keycloak:8080` | base interna para buscar chaves e chamar a Admin API |
 | `KEYCLOAK_REALM` | `sqlutions` | realm do projeto |
-| `KEYCLOAK_ISSUER` | `{KEYCLOAK_URL}/realms/{realm}` | claim `iss` esperado no token |
+| `KEYCLOAK_ISSUER` | `http://localhost:8080/realms/sqlutions` | claim `iss` esperado no token, usando a URL pública do Keycloak |
 | `KEYCLOAK_BACKEND_CLIENT_ID` | `backend` | client confidencial cujo service account acessa a Admin REST API |
 | `KEYCLOAK_BACKEND_CLIENT_SECRET` | `backend-secret` (só dev) | secret do service account (rotacionar fora de dev) |
 | `KEYCLOAK_JWKS_TTL` | `300` | intervalo de cache do JWK Set (segundos) |

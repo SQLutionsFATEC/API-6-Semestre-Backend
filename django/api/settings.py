@@ -132,12 +132,13 @@ CORS_ALLOW_ALL_ORIGINS = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Keycloak (autenticação centralizada)
-# O backend valida o access token (JWT RS256) localmente e usa a Admin REST
-# API para ler/editar usuários. O 'iss' esperado é {KEYCLOAK_URL}/realms/{realm}.
+# O backend usa a URL interna para chamar o Keycloak dentro do Docker mas
+# o emisso do token é a URL pública que o navegador acessa
 KEYCLOAK_URL = os.environ.get('KEYCLOAK_URL', 'http://keycloak:8080').rstrip('/')
 KEYCLOAK_REALM = os.environ.get('KEYCLOAK_REALM', 'sqlutions')
 KEYCLOAK_ISSUER = os.environ.get(
-    'KEYCLOAK_ISSUER', f'{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}'
+    'KEYCLOAK_ISSUER',
+    f'http://localhost:8080/realms/{KEYCLOAK_REALM}',
 )
 KEYCLOAK_JWKS_TTL = int(os.environ.get('KEYCLOAK_JWKS_TTL', '300'))
 
