@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from api.permissions import IsAdminRole
+from api.permissions import IsAdminRole, IsOperadorOrAdminRole
 from api.serializers.usuario_serializer import (
     UsuarioCreateSerializer,
     UsuarioSerializer,
@@ -98,9 +98,9 @@ class UsuariosView(APIView):
 
 
 class UsuarioDetalheView(APIView):
-    """Lê, modifica e deleta um usuário do realm (somente role admin)."""
+    """Lê, modifica e deleta um usuário do realm (admin/operador)."""
 
-    permission_classes = [IsAuthenticated, IsAdminRole]
+    permission_classes = [IsAuthenticated, IsOperadorOrAdminRole]
 
     def _buscar(self, id_usuario):
         usuario = keycloak_admin.obter_usuario(id_usuario)
@@ -108,7 +108,7 @@ class UsuarioDetalheView(APIView):
         return usuario
 
     @extend_schema(
-        summary='Consulta os campos e permissões de um usuário (admin)',
+        summary='Consulta os campos e permissões de um usuário',
         description=(
             'Lê os campos do usuário, incluindo nivel_acesso (realm role, '
             'ex.: operador) e setor (atributo, ex.: juridico). É a leitura '
@@ -117,7 +117,7 @@ class UsuarioDetalheView(APIView):
         responses={
             200: UsuarioSerializer,
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Usuário sem a role admin.'),
+            403: OpenApiResponse(description='Requer nível Operador.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
@@ -131,20 +131,20 @@ class UsuarioDetalheView(APIView):
         return Response(UsuarioSerializer(usuario).data, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary='Modifica campos de um usuário (admin)',
+        summary='Modifica campos de um usuário (admin/operador)',
         description=(
             'Modifica nome, sobrenome, email, setor (atributo do usuário), '
             'nivel_acesso (realm role, ex.: de basico para operador) e/ou '
             'senha. Se a nova senha for temporária (senha_temporaria=true, '
             'padrão), o usuário é obrigado a trocá-la no próximo login. '
-            'Acesso restrito à realm role admin.'
+            'Acesso restrito à realm role admin ou operador.'
         ),
         request=UsuarioUpdateSerializer,
         responses={
             200: UsuarioSerializer,
             400: OpenApiResponse(description='Dados inválidos.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Usuário sem a role admin.'),
+            403: OpenApiResponse(description='Requer nível Operador.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
@@ -164,15 +164,15 @@ class UsuarioDetalheView(APIView):
         return Response(UsuarioSerializer(usuario).data, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary='Deleta um usuário do Keycloak (admin)',
+        summary='Deleta um usuário do Keycloak (admin/operador)',
         description=(
             'Remove o usuário do realm do Keycloak. Acesso restrito à realm '
-            'role admin.'
+            'role admin ou operador.'
         ),
         responses={
             204: OpenApiResponse(description='Usuário deletado com sucesso.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Usuário sem a role admin.'),
+            403: OpenApiResponse(description='Requer nível Operador.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
