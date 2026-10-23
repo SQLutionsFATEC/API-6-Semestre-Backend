@@ -107,18 +107,19 @@ class UsuariosView(APIView):
 
     @extend_schema(
         operation_id='usuarios_delete_self',
-        summary='Deleta a própria conta permanentemente',
+        summary='Anonimiza a própria conta',
         description=(
-            'Remove fisicamente o usuário autenticado do Keycloak (nome, '
-            'e-mail, senha e roles) e registra um tombstone anonimizado em um '
-            'banco independente, confirmado após a remoção; assim a conta não '
-            'reaparece caso um backup do Keycloak seja restaurado. Um e-mail de '
-            'comprovação da exclusão é enviado ao endereço cadastrado. Requer '
-            'token Bearer; retorna 404 se o usuário do token já não existir no '
-            'Keycloak.'
+            'Anonimiza o usuário autenticado no Keycloak: substitui nome, '
+            'e-mail e username por valores genéricos, desabilita a conta e '
+            'remove credenciais, roles e grupos. Registra um tombstone em um '
+            'banco independente, confirmado após a anonimização, para que os '
+            'dados pessoais não reapareçam caso um backup do Keycloak seja '
+            'restaurado. Um e-mail de comprovação é enviado ao endereço '
+            'cadastrado. Requer token Bearer; retorna 404 se o usuário do token '
+            'já não existir no Keycloak.'
         ),
         responses={
-            204: OpenApiResponse(description='Conta deletada com sucesso.'),
+            204: OpenApiResponse(description='Conta anonimizada com sucesso.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
@@ -126,7 +127,7 @@ class UsuariosView(APIView):
     )
     def delete(self, request):
         try:
-            delecao_usuario.deletar_usuario(
+            delecao_usuario.anonimizar_usuario(
                 request.user.id,
                 origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO,
             )
@@ -137,9 +138,9 @@ class UsuariosView(APIView):
 
 
 class UsuarioDetalheView(APIView):
-    """Lê, modifica e deleta um usuário do realm.
+    """Lê, modifica e anonimiza um usuário do realm.
 
-    Leitura e modificação exigem a role admin; a deleção exige a role
+    Leitura e modificação exigem a role admin; a anonimização exige a role
     operador, conforme o critério de autorização da exclusão de usuários.
     """
 
@@ -213,17 +214,19 @@ class UsuarioDetalheView(APIView):
 
     @extend_schema(
         operation_id='usuarios_delete_detail',
-        summary='Deleta um usuário do Keycloak (operador)',
+        summary='Anonimiza um usuário do Keycloak (operador)',
         description=(
-            'Remove fisicamente o usuário especificado do Keycloak e registra '
-            'um tombstone anonimizado em um banco independente, confirmado após '
-            'a remoção, impedindo que ele reapareça após a restauração de um '
-            'backup. Um e-mail de comprovação é enviado ao endereço cadastrado. '
+            'Anonimiza o usuário especificado no Keycloak: substitui nome, '
+            'e-mail e username por valores genéricos, desabilita a conta e '
+            'remove credenciais, roles e grupos. Registra um tombstone em um '
+            'banco independente, confirmado após a anonimização, para que os '
+            'dados pessoais não reapareçam após a restauração de um backup. '
+            'Um e-mail de comprovação é enviado ao endereço cadastrado. '
             'Acesso restrito à realm role operador (a role admin isolada não '
             'é suficiente).'
         ),
         responses={
-            204: OpenApiResponse(description='Usuário deletado com sucesso.'),
+            204: OpenApiResponse(description='Usuário anonimizado com sucesso.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
             403: OpenApiResponse(description='Usuário sem a role operador.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
@@ -232,7 +235,7 @@ class UsuarioDetalheView(APIView):
     )
     def delete(self, request, id_usuario):
         try:
-            delecao_usuario.deletar_usuario(
+            delecao_usuario.anonimizar_usuario(
                 id_usuario,
                 origem=UsuarioDeletado.ORIGEM_OPERADOR,
             )

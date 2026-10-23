@@ -157,14 +157,27 @@ curl -s -X PUT "$KC/admin/realms/$REALM/users/<id>/execute-actions-email" \
   -d '["UPDATE_PASSWORD"]'
 ```
 
-### 4.4 Deletar usuário
+### 4.4 Anonimizar usuário
+
+A aplicação não remove a conta do Keycloak: ela substitui os dados pessoais e desabilita o acesso, para que o tombstone consiga reconhecer o usuário em um backup restaurado. O primeiro passo é o `PUT` da representação:
 
 ```bash
-curl -s -X DELETE "$KC/admin/realms/$REALM/users/<id>" \
-  -H "Authorization: Bearer $TOKEN"
+curl -s -X PUT "$KC/admin/realms/$REALM/users/<id>" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "anonimizado-<hash>",
+    "email": "anonimizado-<hash>@invalid.local",
+    "firstName": "Anonimizado",
+    "lastName": "",
+    "enabled": false,
+    "emailVerified": false,
+    "attributes": {},
+    "requiredActions": []
+  }'
 ```
 
-Em sucesso responde `204 No Content`.
+Em sucesso responde `204 No Content`. O backend também remove credenciais, realm roles e grupos, e encerra as sessões abertas (`POST /users/<id>/logout`).
 
 ## 5. Lendo as permissões de um usuário
 
@@ -216,10 +229,10 @@ As rotas abaixo usam o token Bearer do Keycloak e a Admin REST API; estão docum
 | `/api/usuarios/` | POST | role `admin` | cria usuário com senha temporária, nivel_acesso e setor |
 | `/api/usuarios/{id_usuario}/` | GET | role `admin` | lê campos e permissões de um usuário |
 | `/api/usuarios/{id_usuario}/` | PATCH | role `admin` | altera campos (incl. setor, nivel_acesso e senha temporária) |
-| `/api/usuarios/` | DELETE | usuário autenticado | deleta a própria conta (autoatendimento) |
-| `/api/usuarios/{id_usuario}/` | DELETE | role `operador` | deleta o usuário do realm e grava tombstone |
+| `/api/usuarios/` | DELETE | usuário autenticado | anonimiza a própria conta (autoatendimento) |
+| `/api/usuarios/{id_usuario}/` | DELETE | role `operador` | anonimiza o usuário no realm e grava tombstone |
 
-> As rotas de deleção também aceitam o caminho sem barra final (`/api/usuarios` e `/api/usuarios/{id_usuario}`). A deleção por id exige a role `operador`; a role `admin` isolada não é suficiente.
+> As rotas de anonimização também aceitam o caminho sem barra final (`/api/usuarios` e `/api/usuarios/{id_usuario}`). A anonimização por id exige a role `operador`; a role `admin` isolada não é suficiente.
 
 Exemplos de uso para desenvolvimento (com token do **usuário**, não do admin):
 
@@ -249,11 +262,11 @@ curl -s -X PATCH http://localhost:8000/api/usuarios/<id>/ \
 
 ## 7. Exclusão de usuários e banco de tombstones
 
-A exclusão é **física**: o usuário é removido do Keycloak (nome, e-mail, senha, roles e atributos). Para garantir que ele não volte após a restauração de um backup, cada exclusão grava um tombstone em um banco independente (`tombstone-db`, alias Django `tombstones`). O tombstone nasce **pendente** e só é **confirmado** depois que o Keycloak conclui a remoção; apenas confirmados são usados na purga. Ele contém apenas o SHA-256 do id do Keycloak, a data, a origem (`autoatendimento`/`operador`) e a data de confirmação — nunca nome, e-mail ou o id em claro.
+A exclusão é feita por **anonimização**: nome, e-mail, username e atributos são substituídos por valores genéricos, a conta é desabilitada e credenciais, realm roles e grupos são removidos. O registro do usuário continua no Keycloak, com o mesmo id, para que o tombstone consiga reconhecê-lo em um backup restaurado. Cada exclusão grava um tombstone em um banco independente (`tombstone-db`, alias Django `tombstones`); ele nasce **pendente** e só é **confirmado** depois que o Keycloak conclui a anonimização. Apenas confirmados são usados na purga. O tombstone contém apenas o SHA-256 do id do Keycloak, a data, a origem (`autoatendimento`/`operador`) e a data de confirmação — nunca nome, e-mail ou o id em claro.
 
-- `DELETE /api/usuarios/` — o próprio usuário autenticado deleta a conta.
+- `DELETE /api/usuarios/` — o próprio usuário autenticado anonimiza a conta.
 - `DELETE /api/usuarios/{id}/` — exige a realm role `operador`; retorna `403` sem ela e `404` se o usuário não existir.
-- O e-mail de comprovação da exclusão é enviado ao endereço cadastrado (LGPD). Em dev o backend de e-mail é o console; configure SMTP em produção.
+- O e-mail de comprovação da exclusão é enviado ao endereço original, lido antes da anonimização (LGPD). Em dev o backend de e-mail é o console; configure SMTP em produção.
 
 Após restaurar um backup do Keycloak, execute:
 
@@ -262,7 +275,7 @@ cd deploy
 docker compose exec -T backend python manage.py purge_deleted_users --verificar --aguardar 180
 ```
 
-O comando remove do Keycloak restaurado todos os usuários tombstoned e falha (exit code 1) se algum deles continuar existindo. Os scripts de backup e restauração que automatizam esse fluxo estão documentados em [docs/api/backup-restore.md](../api/backup-restore.md).
+O comando anonimiza novamente no Keycloak restaurado todos os usuários tombstoned e falha (exit code 1) se algum deles ainda tiver dados pessoais. Os scripts de backup e restauração que automatizam esse fluxo estão documentados em [docs/api/backup-restore.md](../api/backup-restore.md).
 
 ## 8. Variáveis de ambiente do backend
 

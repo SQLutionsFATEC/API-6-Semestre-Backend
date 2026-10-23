@@ -1,12 +1,12 @@
-"""Remove do Keycloak usuários que constam no banco de tombstones.
+"""Anonimiza no Keycloak usuários que constam no banco de tombstones.
 
 Este comando é a garantia do direito ao esquecimento após uma restauração de
 backup: o restore script restaura o banco do Keycloak, sobe o serviço e então
 executa este comando. Todo usuário cujo hash SHA-256 esteja em um tombstone
-confirmado é deletado novamente; tombstones pendentes são ignorados, pois
-indicam uma remoção que o Keycloak não confirmou. Com ``--verificar``, o
-comando relê o Keycloak e falha (exit code 1) se algum usuário deletado
-continuar existindo.
+confirmado é anonimizado novamente; tombstones pendentes são ignorados, pois
+indicam uma anonimização que o Keycloak não confirmou. Com ``--verificar``, o
+comando relê o Keycloak e falha (exit code 1) se algum usuário tombstoned
+ainda tiver dados pessoais.
 
 Uso:
     python manage.py purge_deleted_users --verificar --aguardar 120
@@ -30,21 +30,24 @@ INTERVALO_ESPERA = 2
 
 class Command(BaseCommand):
     help = (
-        'Deleta do Keycloak os usuários presentes no banco de tombstones '
+        'Anonimiza no Keycloak os usuários presentes no banco de tombstones '
         '(usado após restaurar um backup) e, opcionalmente, verifica que '
-        'nenhum deles voltou.'
+        'nenhum deles ainda tenha dados pessoais.'
     )
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--dry-run',
             action='store_true',
-            help='Apenas lista quantos usuários seriam deletados; não altera o Keycloak.',
+            help='Apenas lista quantos usuários seriam anonimizados; não altera o Keycloak.',
         )
         parser.add_argument(
             '--verificar',
             action='store_true',
-            help='Relê o Keycloak após a purga e falha se algum usuário deletado permanecer.',
+            help=(
+                'Relê o Keycloak após a anonimização e falha se algum usuário '
+                'tombstoned ainda tiver dados pessoais.'
+            ),
         )
         parser.add_argument(
             '--aguardar',
@@ -57,7 +60,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         hashes = set(listar_hashes_usuarios_deletados())
         if not hashes:
-            self.stdout.write('Nenhum usuário deletado registrado; nada a purgar.')
+            self.stdout.write(
+                'Nenhum usuário tombstoned confirmado; nada a anonimizar.'
+            )
             return
 
         usuarios = self._listar_usuarios(options['aguardar'])
@@ -69,28 +74,30 @@ class Command(BaseCommand):
 
         if options['dry_run']:
             self.stdout.write(
-                f'{len(encontrados)} usuário(s) deletado(s) seriam removidos do Keycloak.'
+                f'{len(encontrados)} usuário(s) seriam anonimizados no Keycloak.'
             )
             return
 
-        removidos = 0
+        anonimizados = 0
         for usuario in encontrados:
             id_usuario = usuario.get('id')
             try:
-                keycloak_admin.deletar_usuario(id_usuario)
+                keycloak_admin.anonimizar_usuario(
+                    id_usuario, sufixo=self._hash_do_usuario(usuario)
+                )
             except keycloak_admin.KeycloakAdminException as erro:
-                # 404 significa que o usuário já não existe: o objetivo foi
-                # cumprido, então a operação é idempotente.
+                # 404 significa que o usuário já não existe: não há dados
+                # pessoais a anonimizar, então a operação é idempotente.
                 if erro.codigo_status != 404:
                     raise CommandError(
-                        'Falha ao deletar usuário tombstoned do Keycloak: '
+                        'Falha ao anonimizar usuário tombstoned do Keycloak: '
                         f'{erro}'
                     )
                 continue
-            removidos += 1
+            anonimizados += 1
 
         self.stdout.write(
-            f'{removidos} usuário(s) deletado(s) removido(s) do Keycloak restaurado.'
+            f'{anonimizados} usuário(s) anonimizado(s) no Keycloak restaurado.'
         )
 
         if options['verificar']:
@@ -99,10 +106,9 @@ class Command(BaseCommand):
     def _listar_usuarios(self, aguardar=0):
         """Lista todos os usuários do Keycloak, com paginação completa.
 
-        A lista completa é obtida antes de qualquer deleção, para que a
-        paginação não pule usuários quando o conjunto diminui durante o
-        processo. Se ``aguardar`` > 0, tenta novamente enquanto o Keycloak
-        estiver iniciando.
+        A lista completa é obtida antes de qualquer anonimização, para que a
+        paginação não pule usuários durante o processo. Se ``aguardar`` > 0,
+        tenta novamente enquanto o Keycloak estiver iniciando.
         """
         limite = time.monotonic() + max(aguardar, 0)
         while True:
@@ -135,15 +141,19 @@ class Command(BaseCommand):
             usuario.get('id')
             for usuario in usuarios
             if self._hash_do_usuario(usuario) in hashes
+            and not keycloak_admin.usuario_esta_anonimizado(
+                usuario, sufixo=self._hash_do_usuario(usuario)
+            )
         ]
         if restantes:
             raise CommandError(
-                'VERIFICAÇÃO FALHOU: usuário(s) deletado(s) ainda existem no '
-                f'Keycloak restaurado ({len(restantes)}).'
+                'VERIFICAÇÃO FALHOU: usuário(s) tombstoned ainda possuem '
+                f'dados pessoais no Keycloak restaurado ({len(restantes)}).'
             )
         self.stdout.write(
             self.style.SUCCESS(
-                'Verificação concluída: nenhum usuário deletado foi restaurado.'
+                'Verificação concluída: nenhum usuário tombstoned permanece '
+                'com dados pessoais.'
             )
         )
 

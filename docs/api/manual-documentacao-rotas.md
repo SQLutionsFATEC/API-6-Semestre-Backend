@@ -165,9 +165,9 @@ Exemplo de payload valido:
 
 O registro expõe `data_criacao`, preenchida uma única vez, e `data_atualizacao`, atualizada a cada salvamento.
 
-## 8. Deleção de usuários (LGPD)
+## 8. Anonimização de usuários (LGPD)
 
-As rotas de exclusão removem o usuário fisicamente do Keycloak e registram um **tombstone anonimizado** (SHA-256 do id) em um banco independente. O registro nasce pendente e só é confirmado depois que o Keycloak conclui a remoção; apenas confirmados impedem que a conta reapareça após a restauração de um backup. O fluxo completo de backup/restauração está em [backup-restore.md](backup-restore.md).
+As rotas de exclusão anonimizam o usuário no Keycloak — substituem nome, e-mail e username por valores genéricos, desabilitam a conta e removem credenciais, roles e grupos — e registram um **tombstone anonimizado** (SHA-256 do id) em um banco independente. O registro nasce pendente e só é confirmado depois que o Keycloak conclui a anonimização; apenas confirmados impedem que os dados pessoais reapareçam após a restauração de um backup. O fluxo completo de backup/restauração está em [backup-restore.md](backup-restore.md).
 
 | Rota | Método | Quem pode | Respostas |
 |---|---|---|---|
@@ -177,7 +177,7 @@ As rotas de exclusão removem o usuário fisicamente do Keycloak e registram um 
 - A barra final é opcional nas duas rotas (`/api/usuarios` também funciona).
 - `404` indica que o usuário não existe no Keycloak; o tombstone não é criado.
 - `403` na rota por id indica que o token não possui a role `operador` (a role `admin` isolada não é suficiente).
-- `502` indica falha de comunicação com o Keycloak. Se a falha ocorrer depois do tombstone, ele fica **pendente** e não conta como exclusão concluída; o usuário pode tentar novamente.
+- `502` indica falha de comunicação com o Keycloak. Se a falha ocorrer depois do tombstone, ele fica **pendente** e não conta como anonimização concluída; o usuário pode tentar novamente.
 - O e-mail de comprovação da exclusão é enviado ao endereço cadastrado. Em desenvolvimento o backend de e-mail padrão é o console; em produção configure `EMAIL_BACKEND`/`EMAIL_HOST` (ver `deploy/.env.example`).
 
 Declare no Swagger os status realmente retornados:
@@ -185,14 +185,14 @@ Declare no Swagger os status realmente retornados:
 ```python
 @extend_schema(
     operation_id='usuarios_delete_detail',
-    summary='Deleta um usuário do Keycloak (operador)',
+    summary='Anonimiza um usuário do Keycloak (operador)',
     description=(
-        'Remove fisicamente o usuário, registra um tombstone pendente, o '
-        'confirma após a remoção e envia e-mail de comprovação. '
+        'Anonimiza o usuário, registra um tombstone pendente, o confirma após '
+        'a anonimização e envia e-mail de comprovação. '
         'Acesso restrito à role operador.'
     ),
     responses={
-        204: OpenApiResponse(description='Usuário deletado com sucesso.'),
+        204: OpenApiResponse(description='Usuário anonimizado com sucesso.'),
         401: OpenApiResponse(description='Usuário não autenticado.'),
         403: OpenApiResponse(description='Usuário sem a role operador.'),
         404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),

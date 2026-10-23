@@ -6,13 +6,13 @@ um tombstone em um banco independente (alias 'tombstones'): apenas o hash
 SHA-256 do id do Keycloak, nunca o id, nome ou e-mail.
 
 O hash é determinístico, então o processo de restauração consegue reconhecer o
-mesmo usuário em um backup e removê-lo novamente. Como o id do Keycloak é um
-UUID (alta entropia), o hash não é reversível na prática e o banco de
+mesmo usuário em um backup e anonimizá-lo novamente. Como o id do Keycloak é
+um UUID (alta entropia), o hash não é reversível na prática e o banco de
 tombstones não guarda dado pessoal diretamente identificável.
 
 O tombstone nasce pendente e só é confirmado depois que o Keycloak conclui a
-remoção. Uma falha no Keycloak deixa o registro pendente, que não é usado pelo
-purge, e a operação pode ser tentada de novo.
+anonimização. Uma falha no Keycloak deixa o registro pendente, que não é usado
+pelo purge, e a operação pode ser tentada de novo.
 """
 
 import hashlib
@@ -53,7 +53,7 @@ def registrar_usuario_deletado(id_usuario, origem=UsuarioDeletado.ORIGEM_AUTOATE
 
 
 def confirmar_usuario_deletado(id_usuario):
-    """Confirma um tombstone pendente após a remoção no Keycloak.
+    """Confirma um tombstone pendente após a anonimização no Keycloak.
 
     Retorna True se havia um tombstone pendente para o id e ele foi
     confirmado; False se o registro não existia ou já estava confirmado.
@@ -86,35 +86,37 @@ def usuario_esta_deletado(id_usuario):
     )
 
 
-def deletar_usuario(id_usuario, origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO):
-    """Deleta fisicamente um usuário, preservando a prova da exclusão.
+def anonimizar_usuario(id_usuario, origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO):
+    """Anonimiza os dados pessoais de um usuário, preservando a prova.
 
-    O tombstone funciona em duas fases:
+    O fluxo é:
       1. lê o usuário no Keycloak (404 se ele não existir);
       2. grava o tombstone como pendente;
-      3. deleta o usuário do Keycloak (remoção física de nome, e-mail, senha,
-         roles e demais dados pessoais);
+      3. substitui os dados pessoais no Keycloak por valores genéricos,
+         desabilita a conta e remove credenciais, roles e grupos;
       4. confirma o tombstone;
       5. envia o e-mail de comprovação da exclusão (LGPD).
 
     Se o Keycloak falhar, o tombstone permanece pendente e a exceção é
     propagada: a operação pode ser tentada novamente e o purge nunca trata um
-    pendente como exclusão concluída. Se o DELETE retornar 404 depois de o
-    usuário ter sido lido, outra requisição já o removeu; o tombstone é
+    pendente como exclusão concluída. Se a anonimização retornar 404 depois de
+    o usuário ter sido lido, outra requisição já o removeu; o tombstone é
     confirmado para que o resultado seja idempotente.
 
-    O e-mail é best-effort: uma falha de SMTP não desfaz a exclusão já
+    O e-mail é best-effort: uma falha de SMTP não desfaz a anonimização já
     concluída, apenas é registrada no log.
     """
     usuario = keycloak_admin.obter_usuario(id_usuario)
 
     registrar_usuario_deletado(id_usuario, origem=origem)
     try:
-        keycloak_admin.deletar_usuario(id_usuario)
+        keycloak_admin.anonimizar_usuario(
+            id_usuario, sufixo=hash_id_usuario(id_usuario)
+        )
     except keycloak_admin.KeycloakAdminException as erro:
         if erro.codigo_status != 404:
             raise
-        # O usuário sumiu entre a leitura e o DELETE: o objetivo foi
+        # O usuário sumiu entre a leitura e a anonimização: o objetivo foi
         # cumprido por outra requisição concorrente.
     confirmar_usuario_deletado(id_usuario)
     enviar_email_comprovacao(usuario)
@@ -123,30 +125,30 @@ def deletar_usuario(id_usuario, origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO):
 
 
 def enviar_email_comprovacao(usuario):
-    """Envia ao ex-titular a comprovação de que a conta foi excluída.
+    """Envia ao ex-titular a comprovação de que a conta foi anonimizada.
 
     Retorna True se a mensagem foi entregue ao backend de e-mail e False se
-    não havia e-mail ou se o envio falhou. Nunca levanta exceção: a exclusão
-    física já ocorreu e não deve ser revertida por causa do e-mail.
+    não havia e-mail ou se o envio falhou. Nunca levanta exceção: a
+    anonimização já ocorreu e não deve ser revertida por causa do e-mail.
     """
     email = (usuario or {}).get('email') or ''
-    if not email:
+    if not email or email.endswith('@invalid.local'):
         logger.warning(
-            'Exclusão concluída sem e-mail de comprovação: usuário sem e-mail cadastrado.'
+            'Anonimização concluída sem e-mail de comprovação: usuário sem e-mail original.'
         )
         return False
 
     nome = (usuario or {}).get('firstName') or ''
     momento = timezone.localtime().strftime('%d/%m/%Y às %H:%M')
-    assunto = 'Sua conta foi excluída permanentemente'
+    assunto = 'Sua conta foi anonimizada'
     mensagem = (
         f'Olá{(", " + nome) if nome else ""},\n\n'
-        'Registramos a exclusão permanente da sua conta em '
+        'Registramos a anonimização da sua conta em '
         f'{momento}.\n\n'
-        'Todos os dados pessoais associados à conta foram removidos do sistema. '
-        'O registro interno mantido para impedir que a conta reapareça em uma '
-        'restauração de backup contém apenas um hash irreversível, sem nome, '
-        'e-mail ou qualquer outro dado pessoal.\n\n'
+        'Seus dados pessoais — nome, e-mail, credenciais, roles e atributos — '
+        'foram removidos do sistema, e a conta foi desabilitada. O registro '
+        'interno mantido para impedir que esses dados reapareçam em uma '
+        'restauração de backup contém apenas um hash irreversível.\n\n'
         'Esta mensagem serve como comprovação da sua solicitação de exclusão. '
         'Se você não solicitou esta exclusão, entre em contato imediatamente '
         'com o suporte.\n\n'

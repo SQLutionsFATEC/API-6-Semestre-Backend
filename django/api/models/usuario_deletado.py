@@ -7,10 +7,11 @@ class UsuarioDeletado(models.Model):
     O id do Keycloak (UUID) NÃO é armazenado: guarda-se apenas seu hash
     SHA-256. Assim o banco de tombstones não contém dado pessoal diretamente
     identificável, mas ainda permite reconhecer o mesmo usuário em um backup
-    restaurado do Keycloak e removê-lo novamente.
+    restaurado do Keycloak e anonimizá-lo novamente.
 
     O registro nasce pendente e só é confirmado depois que o Keycloak
-    confirma a remoção. Apenas tombstones confirmados são usados pelo purge.
+    confirma a anonimização. Apenas tombstones confirmados são usados pelo
+    purge.
 
     Este model vive exclusivamente no banco 'tombstones' (ver
     api.db_routers.TombstoneRouter).

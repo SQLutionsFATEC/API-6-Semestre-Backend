@@ -59,12 +59,12 @@ def email_em_memoria(settings):
 
 @pytest.fixture
 def keycloak_fake(monkeypatch):
-    """Substitui leitura/deleção do Keycloak por fakes controláveis."""
-    chamadas = {'obter': [], 'deletar': []}
+    """Substitui leitura/anonimização do Keycloak por fakes controláveis."""
+    chamadas = {'obter': [], 'anonimizar': []}
     estado = {
         'usuario': dict(USUARIO_ALVO),
         'erro_obter': None,
-        'erro_deletar': None,
+        'erro_anonimizar': None,
     }
 
     def obter(id_usuario):
@@ -73,13 +73,13 @@ def keycloak_fake(monkeypatch):
             raise estado['erro_obter']
         return dict(estado['usuario'], id=id_usuario)
 
-    def deletar(id_usuario):
-        chamadas['deletar'].append(id_usuario)
-        if estado['erro_deletar'] is not None:
-            raise estado['erro_deletar']
+    def anonimizar(id_usuario, sufixo):
+        chamadas['anonimizar'].append(id_usuario)
+        if estado['erro_anonimizar'] is not None:
+            raise estado['erro_anonimizar']
 
     monkeypatch.setattr(keycloak_admin, 'obter_usuario', obter)
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar)
+    monkeypatch.setattr(keycloak_admin, 'anonimizar_usuario', anonimizar)
     return chamadas, estado
 
 
@@ -108,7 +108,7 @@ def test_deletar_propria_conta(keycloak_fake):
     resposta = cliente.delete(reverse('usuarios'))
 
     assert resposta.status_code == status.HTTP_204_NO_CONTENT
-    assert chamadas['deletar'] == [ID_PROPRIO]
+    assert chamadas['anonimizar'] == [ID_PROPRIO]
     assert usuario_esta_deletado(ID_PROPRIO) is True
     registro = UsuarioDeletado.objects.using('tombstones').get(
         id_usuario_hash=hash_id_usuario(ID_PROPRIO)
@@ -153,7 +153,7 @@ def test_deletar_por_id_sem_role_operador_retorna_403(keycloak_fake):
     assert resposta.json()['detail'] == (
         'Somente usuários com a role operador podem acessar este recurso.'
     )
-    assert chamadas['deletar'] == []
+    assert chamadas['anonimizar'] == []
     assert usuario_esta_deletado(ID_ALVO) is False
 
 
@@ -165,7 +165,7 @@ def test_admin_sem_role_operador_nao_pode_deletar_por_id(keycloak_fake):
     resposta = cliente.delete(reverse('usuario-detalhe', args=[ID_ALVO]))
 
     assert resposta.status_code == status.HTTP_403_FORBIDDEN
-    assert chamadas['deletar'] == []
+    assert chamadas['anonimizar'] == []
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
@@ -176,7 +176,7 @@ def test_operador_deleta_usuario_por_id(keycloak_fake):
     resposta = cliente.delete(reverse('usuario-detalhe', args=[ID_ALVO]))
 
     assert resposta.status_code == status.HTTP_204_NO_CONTENT
-    assert chamadas['deletar'] == [ID_ALVO]
+    assert chamadas['anonimizar'] == [ID_ALVO]
     registro = UsuarioDeletado.objects.using('tombstones').get(
         id_usuario_hash=hash_id_usuario(ID_ALVO)
     )
@@ -213,7 +213,7 @@ def test_operador_deleta_usuario_inexistente_retorna_404(keycloak_fake):
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_falha_no_keycloak_retorna_502_e_mantem_tombstone_pendente(keycloak_fake):
     _, estado = keycloak_fake
-    estado['erro_deletar'] = KeycloakAdminException(
+    estado['erro_anonimizar'] = KeycloakAdminException(
         'Falha no Keycloak.', codigo_status=500
     )
     cliente = _cliente(KeycloakUser(CLAIMS_OPERADOR))

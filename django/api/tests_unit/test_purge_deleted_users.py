@@ -1,4 +1,4 @@
-"""Testes do comando purge_deleted_users (prova pós-restauração de backup)."""
+"""Testes do comando purge_deleted_users (anonimização pós-restauração)."""
 
 from io import StringIO
 
@@ -11,6 +11,7 @@ from api.management.commands import purge_deleted_users as comando
 from api.services import keycloak_admin
 from api.services.delecao_usuario import (
     confirmar_usuario_deletado,
+    hash_id_usuario,
     registrar_usuario_deletado,
 )
 from api.services.keycloak_admin import KeycloakAdminException
@@ -19,6 +20,20 @@ from api.services.keycloak_admin import KeycloakAdminException
 def _registrar_confirmado(id_usuario):
     registrar_usuario_deletado(id_usuario)
     confirmar_usuario_deletado(id_usuario)
+
+
+def _representacao_anonimizada(usuario):
+    sufixo = hash_id_usuario(usuario['id'])
+    return dict(
+        usuario,
+        username=f'anonimizado-{sufixo}',
+        email=f'anonimizado-{sufixo}@invalid.local',
+        firstName='Anonimizado',
+        lastName='',
+        enabled=False,
+        attributes={},
+        requiredActions=[],
+    )
 
 
 def _mock_listar(monkeypatch, usuarios):
@@ -34,73 +49,82 @@ def _mock_listar(monkeypatch, usuarios):
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_purga_remove_somente_usuarios_tombstoned_e_verifica(monkeypatch):
-    _registrar_confirmado('u-deletado')
-    usuarios = [{'id': 'u-deletado'}, {'id': 'u-vivo'}]
+def test_purga_anonimiza_somente_usuarios_tombstoned_e_verifica(monkeypatch):
+    _registrar_confirmado('u-anonimizado')
+    usuarios = [{'id': 'u-anonimizado'}, {'id': 'u-vivo'}]
     _mock_listar(monkeypatch, usuarios)
-    removidos = []
+    anonimizados = []
 
-    def deletar(id_usuario):
-        removidos.append(id_usuario)
-        usuarios[:] = [u for u in usuarios if u['id'] != id_usuario]
+    def anonimizar(id_usuario, sufixo):
+        anonimizados.append((id_usuario, sufixo))
+        for indice, usuario in enumerate(usuarios):
+            if usuario['id'] == id_usuario:
+                usuarios[indice] = _representacao_anonimizada(usuario)
 
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar)
+    monkeypatch.setattr(keycloak_admin, 'anonimizar_usuario', anonimizar)
     saida = StringIO()
 
     call_command('purge_deleted_users', '--verificar', stdout=saida)
 
-    assert removidos == ['u-deletado']
-    assert 'nenhum usuário deletado foi restaurado' in saida.getvalue()
-    assert usuarios == [{'id': 'u-vivo'}]
+    assert anonimizados == [
+        ('u-anonimizado', hash_id_usuario('u-anonimizado'))
+    ]
+    assert usuarios[0]['enabled'] is False
+    assert usuarios[1] == {'id': 'u-vivo'}
+    assert 'nenhum usuário tombstoned permanece com dados pessoais' in saida.getvalue()
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_dry_run_nao_deleta(monkeypatch):
-    _registrar_confirmado('u-deletado')
-    _mock_listar(monkeypatch, [{'id': 'u-deletado'}])
-    removidos = []
+def test_dry_run_nao_anonimiza(monkeypatch):
+    _registrar_confirmado('u-anonimizado')
+    _mock_listar(monkeypatch, [{'id': 'u-anonimizado'}])
+    anonimizados = []
     monkeypatch.setattr(
-        keycloak_admin, 'deletar_usuario', lambda id_usuario: removidos.append(id_usuario)
+        keycloak_admin,
+        'anonimizar_usuario',
+        lambda id_usuario, sufixo: anonimizados.append(id_usuario),
     )
     saida = StringIO()
 
     call_command('purge_deleted_users', '--dry-run', stdout=saida)
 
-    assert removidos == []
-    assert 'seriam removidos' in saida.getvalue()
+    assert anonimizados == []
+    assert 'seriam anonimizados' in saida.getvalue()
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_verificacao_falha_quando_usuario_restaurado_permanece(monkeypatch):
-    _registrar_confirmado('u-deletado')
-    _mock_listar(monkeypatch, [{'id': 'u-deletado'}])
-    # Simula uma deleção que não surtiu efeito no Keycloak.
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', lambda id_usuario: None)
+def test_verificacao_falha_quando_usuario_ainda_tem_dados_pessoais(monkeypatch):
+    _registrar_confirmado('u-anonimizado')
+    _mock_listar(monkeypatch, [{'id': 'u-anonimizado'}])
+    # Simula uma anonimização que não surtiu efeito no Keycloak.
+    monkeypatch.setattr(
+        keycloak_admin, 'anonimizar_usuario', lambda id_usuario, sufixo: None
+    )
 
-    with pytest.raises(CommandError, match='VERIFICAÇÃO FALHOU'):
+    with pytest.raises(CommandError, match='ainda possuem dados pessoais'):
         call_command('purge_deleted_users', '--verificar', stdout=StringIO())
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_404_na_delecao_e_idempotente(monkeypatch):
-    _registrar_confirmado('u-deletado')
-    _mock_listar(monkeypatch, [{'id': 'u-deletado'}])
+def test_404_na_anonimizacao_e_idempotente(monkeypatch):
+    _registrar_confirmado('u-anonimizado')
+    _mock_listar(monkeypatch, [{'id': 'u-anonimizado'}])
 
-    def deletar_ja_ausente(id_usuario):
+    def anonimizar_ja_ausente(id_usuario, sufixo):
         raise KeycloakAdminException('Não encontrado.', codigo_status=404)
 
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar_ja_ausente)
+    monkeypatch.setattr(keycloak_admin, 'anonimizar_usuario', anonimizar_ja_ausente)
     saida = StringIO()
 
     call_command('purge_deleted_users', stdout=saida)
 
-    assert '0 usuário(s) deletado(s) removido(s)' in saida.getvalue()
+    assert '0 usuário(s) anonimizado(s)' in saida.getvalue()
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_aguardar_keycloak_ficar_disponivel(monkeypatch):
-    _registrar_confirmado('u-deletado')
-    usuarios = [{'id': 'u-deletado'}]
+    _registrar_confirmado('u-anonimizado')
+    usuarios = [{'id': 'u-anonimizado'}]
     tentativas = {'quantidade': 0}
 
     def listar(inicio=0, maximo=100):
@@ -111,7 +135,9 @@ def test_aguardar_keycloak_ficar_disponivel(monkeypatch):
 
     monkeypatch.setattr(keycloak_admin, 'listar_usuarios', listar)
     monkeypatch.setattr(comando.time, 'sleep', lambda segundos: None)
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', lambda id_usuario: None)
+    monkeypatch.setattr(
+        keycloak_admin, 'anonimizar_usuario', lambda id_usuario, sufixo: None
+    )
 
     call_command('purge_deleted_users', '--aguardar', '5', stdout=StringIO())
 
@@ -121,7 +147,7 @@ def test_aguardar_keycloak_ficar_disponivel(monkeypatch):
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_erro_nao_temporario_encerra_com_falha(monkeypatch):
-    _registrar_confirmado('u-deletado')
+    _registrar_confirmado('u-anonimizado')
 
     def listar(inicio=0, maximo=100):
         raise KeycloakAdminException('Realm inválido.', codigo_status=404)
@@ -133,7 +159,7 @@ def test_erro_nao_temporario_encerra_com_falha(monkeypatch):
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_tombstone_pendente_nao_e_purgado(monkeypatch):
+def test_tombstone_pendente_nao_e_anonimizado(monkeypatch):
     registrar_usuario_deletado('u-pendente')
 
     def listar(**kwargs):
@@ -144,27 +170,29 @@ def test_tombstone_pendente_nao_e_purgado(monkeypatch):
 
     call_command('purge_deleted_users', '--verificar', stdout=saida)
 
-    assert 'Nenhum usuário deletado registrado' in saida.getvalue()
+    assert 'nada a anonimizar' in saida.getvalue()
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_purga_ignora_pendente_mesmo_com_outro_confirmado(monkeypatch):
-    _registrar_confirmado('u-confirmado')
+    _registrar_confirmado('u-anonimizado')
     registrar_usuario_deletado('u-pendente')
-    usuarios = [{'id': 'u-confirmado'}, {'id': 'u-pendente'}]
+    usuarios = [{'id': 'u-anonimizado'}, {'id': 'u-pendente'}]
     _mock_listar(monkeypatch, usuarios)
-    removidos = []
+    anonimizados = []
 
-    def deletar(id_usuario):
-        removidos.append(id_usuario)
-        usuarios[:] = [u for u in usuarios if u['id'] != id_usuario]
+    def anonimizar(id_usuario, sufixo):
+        anonimizados.append(id_usuario)
+        for indice, usuario in enumerate(usuarios):
+            if usuario['id'] == id_usuario:
+                usuarios[indice] = _representacao_anonimizada(usuario)
 
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar)
+    monkeypatch.setattr(keycloak_admin, 'anonimizar_usuario', anonimizar)
 
     call_command('purge_deleted_users', stdout=StringIO())
 
-    assert removidos == ['u-confirmado']
-    assert {'id': 'u-pendente'} in usuarios
+    assert anonimizados == ['u-anonimizado']
+    assert usuarios[1] == {'id': 'u-pendente'}
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
@@ -177,4 +205,4 @@ def test_sem_tombstones_nao_consulta_keycloak(monkeypatch):
 
     call_command('purge_deleted_users', '--verificar', stdout=saida)
 
-    assert 'Nenhum usuário deletado registrado' in saida.getvalue()
+    assert 'nada a anonimizar' in saida.getvalue()

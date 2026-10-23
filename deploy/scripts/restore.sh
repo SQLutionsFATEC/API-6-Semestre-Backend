@@ -12,8 +12,8 @@
 #   5. mescla (união) os tombstones confirmados do backup no banco
 #      independente — nunca remove tombstones já existentes;
 #   6. sobe o Keycloak/backend e executa purge_deleted_users --verificar,
-#      que remove do Keycloak restaurado todo usuário tombstoned e falha se
-#      algum deles continuar existindo.
+#      que anonimiza no Keycloak restaurado todo usuário tombstoned e falha
+#      se algum deles ainda tiver dados pessoais.
 #
 # O banco de tombstones em si NUNCA é restaurado por cima do banco vivo.
 
@@ -143,8 +143,8 @@ for _ in $(seq 1 90); do
 done
 [[ "$pronto" -eq 1 ]] || die 'o backend não ficou pronto a tempo.'
 
-log 'Removendo do Keycloak restaurado os usuários que constam como deletados...'
+log 'Anonimizando no Keycloak restaurado os usuários que constam como deletados...'
 "${COMPOSE[@]}" exec -T "$BACKEND_SERVICE" \
     python manage.py purge_deleted_users --verificar --aguardar 180
 
-log 'Restauração concluída: nenhum usuário deletado foi restaurado.'
+log 'Restauração concluída: nenhum dado pessoal de usuário deletado foi restaurado.'

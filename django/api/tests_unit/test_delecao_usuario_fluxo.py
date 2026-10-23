@@ -1,4 +1,4 @@
-"""Testes do fluxo de deleção física com tombstone e e-mail de comprovação."""
+"""Testes do fluxo de anonimização com tombstone e e-mail de comprovação."""
 
 import pytest
 from django.core import mail
@@ -6,7 +6,8 @@ from django.core import mail
 from api.models import UsuarioDeletado
 from api.services import delecao_usuario, keycloak_admin
 from api.services.delecao_usuario import (
-    deletar_usuario,
+    anonimizar_usuario,
+    hash_id_usuario,
     listar_hashes_usuarios_deletados,
     usuario_esta_deletado,
 )
@@ -43,21 +44,21 @@ def _mock_obter(monkeypatch, usuario=None, erro=None):
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_deletar_cria_tombstone_pendente_antes_de_remover_do_keycloak(monkeypatch):
+def test_anonimizar_cria_tombstone_pendente_antes_de_alterar_o_keycloak(monkeypatch):
     chamadas = []
 
-    def deletar(id_usuario):
+    def anonimizar(id_usuario, sufixo):
         registro = UsuarioDeletado.objects.using('tombstones').get()
-        chamadas.append((id_usuario, registro.confirmado_em))
+        chamadas.append((id_usuario, sufixo, registro.confirmado_em))
 
     _mock_obter(monkeypatch)
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar)
+    monkeypatch.setattr(keycloak_admin, 'anonimizar_usuario', anonimizar)
 
-    usuario = deletar_usuario(ID_USUARIO, origem=UsuarioDeletado.ORIGEM_OPERADOR)
+    usuario = anonimizar_usuario(ID_USUARIO, origem=UsuarioDeletado.ORIGEM_OPERADOR)
 
     assert usuario['id'] == ID_USUARIO
     # O tombstone já existia, mas ainda pendente, quando o Keycloak foi chamado.
-    assert chamadas == [(ID_USUARIO, None)]
+    assert chamadas == [(ID_USUARIO, hash_id_usuario(ID_USUARIO), None)]
     assert usuario_esta_deletado(ID_USUARIO) is True
 
     registro = UsuarioDeletado.objects.using('tombstones').get()
@@ -66,17 +67,19 @@ def test_deletar_cria_tombstone_pendente_antes_de_remover_do_keycloak(monkeypatc
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_deletar_envia_email_de_comprovacao(monkeypatch):
+def test_anonimizar_envia_email_de_comprovacao(monkeypatch):
     _mock_obter(monkeypatch)
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', lambda id_usuario: None)
+    monkeypatch.setattr(
+        keycloak_admin, 'anonimizar_usuario', lambda id_usuario, sufixo: None
+    )
 
-    deletar_usuario(ID_USUARIO)
+    anonimizar_usuario(ID_USUARIO)
 
     assert usuario_esta_deletado(ID_USUARIO) is True
     assert len(mail.outbox) == 1
     mensagem = mail.outbox[0]
     assert mensagem.to == ['maria@example.com']
-    assert 'excluída permanentemente' in mensagem.subject
+    assert 'anonimizada' in mensagem.subject
     assert 'comprovação' in mensagem.body
     assert 'Maria' in mensagem.body
 
@@ -89,11 +92,13 @@ def test_usuario_inexistente_retorna_404_sem_criar_tombstone(monkeypatch):
     )
     chamadas = []
     monkeypatch.setattr(
-        keycloak_admin, 'deletar_usuario', lambda id_usuario: chamadas.append(id_usuario)
+        keycloak_admin,
+        'anonimizar_usuario',
+        lambda id_usuario, sufixo: chamadas.append(id_usuario),
     )
 
     with pytest.raises(KeycloakAdminException) as erro:
-        deletar_usuario(ID_USUARIO)
+        anonimizar_usuario(ID_USUARIO)
 
     assert erro.value.codigo_status == 404
     assert chamadas == []
@@ -105,13 +110,13 @@ def test_usuario_inexistente_retorna_404_sem_criar_tombstone(monkeypatch):
 def test_falha_no_keycloak_deixa_tombstone_pendente(monkeypatch):
     _mock_obter(monkeypatch)
 
-    def deletar(id_usuario):
+    def anonimizar(id_usuario, sufixo):
         raise KeycloakAdminException('Falha no Keycloak.', codigo_status=500)
 
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar)
+    monkeypatch.setattr(keycloak_admin, 'anonimizar_usuario', anonimizar)
 
     with pytest.raises(KeycloakAdminException):
-        deletar_usuario(ID_USUARIO)
+        anonimizar_usuario(ID_USUARIO)
 
     # A intenção fica registrada, mas não conta como exclusão concluída.
     registro = UsuarioDeletado.objects.using('tombstones').get()
@@ -126,18 +131,18 @@ def test_retry_apos_falha_confirma_tombstone(monkeypatch):
     _mock_obter(monkeypatch)
     tentativas = {'quantidade': 0}
 
-    def deletar(id_usuario):
+    def anonimizar(id_usuario, sufixo):
         tentativas['quantidade'] += 1
         if tentativas['quantidade'] == 1:
             raise KeycloakAdminException('Falha no Keycloak.', codigo_status=500)
 
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar)
+    monkeypatch.setattr(keycloak_admin, 'anonimizar_usuario', anonimizar)
 
     with pytest.raises(KeycloakAdminException):
-        deletar_usuario(ID_USUARIO)
+        anonimizar_usuario(ID_USUARIO)
     assert usuario_esta_deletado(ID_USUARIO) is False
 
-    deletar_usuario(ID_USUARIO)
+    anonimizar_usuario(ID_USUARIO)
 
     assert tentativas['quantidade'] == 2
     assert usuario_esta_deletado(ID_USUARIO) is True
@@ -145,15 +150,15 @@ def test_retry_apos_falha_confirma_tombstone(monkeypatch):
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_delete_404_apos_leitura_confirma_como_ja_deletado(monkeypatch):
+def test_anonimizacao_404_apos_leitura_confirma_como_ja_deletado(monkeypatch):
     _mock_obter(monkeypatch)
 
-    def deletar(id_usuario):
+    def anonimizar(id_usuario, sufixo):
         raise KeycloakAdminException('Usuário não encontrado.', codigo_status=404)
 
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar)
+    monkeypatch.setattr(keycloak_admin, 'anonimizar_usuario', anonimizar)
 
-    usuario = deletar_usuario(ID_USUARIO)
+    usuario = anonimizar_usuario(ID_USUARIO)
 
     assert usuario['id'] == ID_USUARIO
     assert usuario_esta_deletado(ID_USUARIO) is True
@@ -161,16 +166,18 @@ def test_delete_404_apos_leitura_confirma_como_ja_deletado(monkeypatch):
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_falha_de_email_nao_desfaz_a_exclusao(monkeypatch):
+def test_falha_de_email_nao_desfaz_a_anonimizacao(monkeypatch):
     _mock_obter(monkeypatch)
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', lambda id_usuario: None)
+    monkeypatch.setattr(
+        keycloak_admin, 'anonimizar_usuario', lambda id_usuario, sufixo: None
+    )
 
     def send_mail_com_falha(*args, **kwargs):
         raise RuntimeError('SMTP indisponível')
 
     monkeypatch.setattr(delecao_usuario, 'send_mail', send_mail_com_falha)
 
-    usuario = deletar_usuario(ID_USUARIO)
+    usuario = anonimizar_usuario(ID_USUARIO)
 
     assert usuario['id'] == ID_USUARIO
     assert usuario_esta_deletado(ID_USUARIO) is True
@@ -179,11 +186,13 @@ def test_falha_de_email_nao_desfaz_a_exclusao(monkeypatch):
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_usuario_sem_email_nao_impede_a_exclusao(monkeypatch):
+def test_usuario_sem_email_nao_impede_a_anonimizacao(monkeypatch):
     _mock_obter(monkeypatch, usuario=dict(USUARIO, email=''))
-    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', lambda id_usuario: None)
+    monkeypatch.setattr(
+        keycloak_admin, 'anonimizar_usuario', lambda id_usuario, sufixo: None
+    )
 
-    usuario = deletar_usuario(ID_USUARIO)
+    usuario = anonimizar_usuario(ID_USUARIO)
 
     assert usuario['id'] == ID_USUARIO
     assert usuario_esta_deletado(ID_USUARIO) is True
