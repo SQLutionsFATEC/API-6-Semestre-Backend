@@ -66,3 +66,7 @@ data/*.csv
 
 # Relatórios gerados automaticamente pelos testes
 test-results.xml
+
+# Backups locais e diretórios temporários do restore
+deploy/backups/
+deploy/.restore-tombstones-*/

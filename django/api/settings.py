@@ -87,8 +87,33 @@ DATABASES = {
         'HOST': os.environ.get('DB_HOST', 'postgres'),
         'PORT': os.environ.get('DB_PORT', '5432'),
         'CONN_MAX_AGE': 60,
-    }
+    },
+    # Banco independente usado apenas para registrar (de forma anonimizada)
+    # quais usuários foram deletados. Ele NUNCA é restaurado junto com os
+    # backups da aplicação/Keycloak; por isso usuários deletados continuam
+    # deletados mesmo após a restauração de um backup.
+    'tombstones': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DELETED_USERS_DB_NAME', 'deleted_users_db'),
+        'USER': os.environ.get(
+            'DELETED_USERS_DB_USER',
+            os.environ.get('DB_USER', os.environ.get('POSTGRES_USER', 'api_user')),
+        ),
+        'PASSWORD': os.environ.get(
+            'DELETED_USERS_DB_PASSWORD',
+            os.environ.get('DB_PASSWORD', os.environ.get('POSTGRES_PASSWORD')),
+        ),
+        'HOST': os.environ.get(
+            'DELETED_USERS_DB_HOST', os.environ.get('DB_HOST', 'postgres')
+        ),
+        'PORT': os.environ.get('DELETED_USERS_DB_PORT', '5432'),
+        'CONN_MAX_AGE': 60,
+    },
 }
+
+# O model UsuarioDeletado só existe no banco 'tombstones'; os demais models
+# continuam exclusivamente no banco 'default'.
+DATABASE_ROUTERS = ['api.db_routers.TombstoneRouter']
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -148,6 +173,21 @@ KEYCLOAK_JWKS_TTL = int(os.environ.get('KEYCLOAK_JWKS_TTL', '300'))
 KEYCLOAK_BACKEND_CLIENT_ID = os.environ.get('KEYCLOAK_BACKEND_CLIENT_ID', 'backend')
 KEYCLOAK_BACKEND_CLIENT_SECRET = os.environ.get(
     'KEYCLOAK_BACKEND_CLIENT_SECRET', 'backend-secret'
+)
+
+# E-mail: usado para enviar a comprovação de exclusão de conta (LGPD).
+# O padrão é o console (desenvolvimento). Em produção, configure SMTP pelas
+# variáveis EMAIL_*.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend'
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'false').lower() in ('1', 'true', 'yes')
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL', 'nao-responda@sqlutions.example.com'
 )
 
 REST_FRAMEWORK = {
