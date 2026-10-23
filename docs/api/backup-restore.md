@@ -98,7 +98,7 @@ O comando `purge_deleted_users`:
 - calcula o SHA-256 de cada id e anonimiza quem está no banco de tombstones;
 - com `--verificar`, relê o Keycloak e termina com **exit code 1** se algum usuário tombstoned ainda tiver dados pessoais.
 
-Se a verificação falhar, o restore termina com erro e a restauração não é considerada concluída.
+Se a verificação falhar, o comando `purge_deleted_users` encerra com exit code 1 e o `restore.sh` termina com erro. A restauração não é desfeita: bancos, mídia, Keycloak e backend permanecem no estado restaurado. Nesse caso, o ambiente deve ser tratado como não seguro para uso até que `purge_deleted_users --verificar` seja executado novamente e conclua com sucesso (a operação é idempotente), ou até a causa da falha ser investigada.
 
 ## 4. Demonstração ponta a ponta
 
