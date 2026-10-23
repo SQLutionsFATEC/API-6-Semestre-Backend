@@ -46,15 +46,16 @@ done
 # exclusão confirmada; o arquivo precisa existir.
 [[ -f "$BACKUP_DIR/tombstones.csv" ]] || die 'arquivo ausente: tombstones.csv'
 
-if [[ -f "$BACKUP_DIR/SHA256SUMS" ]]; then
-    log 'Verificando checksums...'
-    while read -r checksum arquivo; do
-        [[ -n "${arquivo:-}" ]] || continue
-        [[ -f "$BACKUP_DIR/$arquivo" ]] || die "arquivo listado não existe: $arquivo"
-        calculado="$(sha256_of "$BACKUP_DIR/$arquivo")"
-        [[ "$calculado" == "$checksum" ]] || die "checksum inválido: $arquivo"
-    done < "$BACKUP_DIR/SHA256SUMS"
-fi
+[[ -f "$BACKUP_DIR/SHA256SUMS" ]] \
+    || die 'arquivo ausente: SHA256SUMS (backup incompleto ou adulterado).'
+
+log 'Verificando checksums...'
+while read -r checksum arquivo; do
+    [[ -n "${arquivo:-}" ]] || continue
+    [[ -f "$BACKUP_DIR/$arquivo" ]] || die "arquivo listado não existe: $arquivo"
+    calculado="$(sha256_of "$BACKUP_DIR/$arquivo")"
+    [[ "$calculado" == "$checksum" ]] || die "checksum inválido: $arquivo"
+done < "$BACKUP_DIR/SHA256SUMS"
 
 if [[ "$CONFIRMAR" -eq 1 ]]; then
     printf 'ATENÇÃO: esta operação sobrescreve o banco da aplicação e o banco do Keycloak.\n'
