@@ -23,6 +23,10 @@ class UsuariosView(APIView):
     def get_permissions(self):
         if self.request.method == 'PATCH':
             return [IsAuthenticated()]
+        
+        if self.request.method == 'DELETE':
+            return [IsAuthenticated()]
+        
         return [IsAuthenticated(), IsAdminRole()]
 
     @extend_schema(
