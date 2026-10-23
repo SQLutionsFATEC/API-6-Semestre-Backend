@@ -40,16 +40,16 @@ log 'Dump do banco de tombstones (recuperação de desastre)...'
     'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
     > "$DEST/tombstones.dump"
 
-log 'Exportando tombstones em CSV (usado no restore com união)...'
+log 'Exportando tombstones confirmados em CSV (usado no restore com união)...'
 "${COMPOSE[@]}" exec -T "$TOMBSTONE_DB_SERVICE" sh -c \
     'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
-        -c "COPY (SELECT id_usuario_hash, deletado_em, origem FROM usuario_deletado ORDER BY deletado_em) TO STDOUT WITH (FORMAT csv)"' \
+        -c "COPY (SELECT id_usuario_hash, deletado_em, origem FROM usuario_deletado WHERE confirmado_em IS NOT NULL ORDER BY deletado_em) TO STDOUT WITH (FORMAT csv)"' \
     > "$DEST/tombstones.csv"
 
 for arquivo in app.dump keycloak.dump tombstones.dump; do
     [[ -s "$DEST/$arquivo" ]] || die "dump vazio: $arquivo"
 done
-# tombstones.csv pode ser vazio quando ainda não há nenhuma exclusão.
+# tombstones.csv pode ser vazio quando ainda não há nenhuma exclusão confirmada.
 [[ -f "$DEST/tombstones.csv" ]] || die 'CSV de tombstones não foi gerado.'
 
 # Verifica que os dumps são legíveis pelo pg_restore antes de considerar o

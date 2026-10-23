@@ -9,8 +9,16 @@ from django.core.management.base import CommandError
 
 from api.management.commands import purge_deleted_users as comando
 from api.services import keycloak_admin
-from api.services.delecao_usuario import registrar_usuario_deletado
+from api.services.delecao_usuario import (
+    confirmar_usuario_deletado,
+    registrar_usuario_deletado,
+)
 from api.services.keycloak_admin import KeycloakAdminException
+
+
+def _registrar_confirmado(id_usuario):
+    registrar_usuario_deletado(id_usuario)
+    confirmar_usuario_deletado(id_usuario)
 
 
 def _mock_listar(monkeypatch, usuarios):
@@ -27,7 +35,7 @@ def _mock_listar(monkeypatch, usuarios):
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_purga_remove_somente_usuarios_tombstoned_e_verifica(monkeypatch):
-    registrar_usuario_deletado('u-deletado')
+    _registrar_confirmado('u-deletado')
     usuarios = [{'id': 'u-deletado'}, {'id': 'u-vivo'}]
     _mock_listar(monkeypatch, usuarios)
     removidos = []
@@ -48,7 +56,7 @@ def test_purga_remove_somente_usuarios_tombstoned_e_verifica(monkeypatch):
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_dry_run_nao_deleta(monkeypatch):
-    registrar_usuario_deletado('u-deletado')
+    _registrar_confirmado('u-deletado')
     _mock_listar(monkeypatch, [{'id': 'u-deletado'}])
     removidos = []
     monkeypatch.setattr(
@@ -64,7 +72,7 @@ def test_dry_run_nao_deleta(monkeypatch):
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_verificacao_falha_quando_usuario_restaurado_permanece(monkeypatch):
-    registrar_usuario_deletado('u-deletado')
+    _registrar_confirmado('u-deletado')
     _mock_listar(monkeypatch, [{'id': 'u-deletado'}])
     # Simula uma deleção que não surtiu efeito no Keycloak.
     monkeypatch.setattr(keycloak_admin, 'deletar_usuario', lambda id_usuario: None)
@@ -75,7 +83,7 @@ def test_verificacao_falha_quando_usuario_restaurado_permanece(monkeypatch):
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_404_na_delecao_e_idempotente(monkeypatch):
-    registrar_usuario_deletado('u-deletado')
+    _registrar_confirmado('u-deletado')
     _mock_listar(monkeypatch, [{'id': 'u-deletado'}])
 
     def deletar_ja_ausente(id_usuario):
@@ -91,7 +99,7 @@ def test_404_na_delecao_e_idempotente(monkeypatch):
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_aguardar_keycloak_ficar_disponivel(monkeypatch):
-    registrar_usuario_deletado('u-deletado')
+    _registrar_confirmado('u-deletado')
     usuarios = [{'id': 'u-deletado'}]
     tentativas = {'quantidade': 0}
 
@@ -113,7 +121,7 @@ def test_aguardar_keycloak_ficar_disponivel(monkeypatch):
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
 def test_erro_nao_temporario_encerra_com_falha(monkeypatch):
-    registrar_usuario_deletado('u-deletado')
+    _registrar_confirmado('u-deletado')
 
     def listar(inicio=0, maximo=100):
         raise KeycloakAdminException('Realm inválido.', codigo_status=404)
@@ -122,6 +130,41 @@ def test_erro_nao_temporario_encerra_com_falha(monkeypatch):
 
     with pytest.raises(CommandError, match='Falha ao consultar o Keycloak'):
         call_command('purge_deleted_users', '--aguardar', '5', stdout=StringIO())
+
+
+@pytest.mark.django_db(databases=['default', 'tombstones'])
+def test_tombstone_pendente_nao_e_purgado(monkeypatch):
+    registrar_usuario_deletado('u-pendente')
+
+    def listar(**kwargs):
+        raise AssertionError('Não deveria consultar o Keycloak.')
+
+    monkeypatch.setattr(keycloak_admin, 'listar_usuarios', listar)
+    saida = StringIO()
+
+    call_command('purge_deleted_users', '--verificar', stdout=saida)
+
+    assert 'Nenhum usuário deletado registrado' in saida.getvalue()
+
+
+@pytest.mark.django_db(databases=['default', 'tombstones'])
+def test_purga_ignora_pendente_mesmo_com_outro_confirmado(monkeypatch):
+    _registrar_confirmado('u-confirmado')
+    registrar_usuario_deletado('u-pendente')
+    usuarios = [{'id': 'u-confirmado'}, {'id': 'u-pendente'}]
+    _mock_listar(monkeypatch, usuarios)
+    removidos = []
+
+    def deletar(id_usuario):
+        removidos.append(id_usuario)
+        usuarios[:] = [u for u in usuarios if u['id'] != id_usuario]
+
+    monkeypatch.setattr(keycloak_admin, 'deletar_usuario', deletar)
+
+    call_command('purge_deleted_users', stdout=StringIO())
+
+    assert removidos == ['u-confirmado']
+    assert {'id': 'u-pendente'} in usuarios
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])

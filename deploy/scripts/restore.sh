@@ -9,8 +9,8 @@
 #   2. para backend e Keycloak;
 #   3. restaura o banco da aplicação e o banco do Keycloak;
 #   4. restaura a mídia;
-#   5. mescla (união) os tombstones do backup no banco independente — nunca
-#      remove tombstones já existentes;
+#   5. mescla (união) os tombstones confirmados do backup no banco
+#      independente — nunca remove tombstones já existentes;
 #   6. sobe o Keycloak/backend e executa purge_deleted_users --verificar,
 #      que remove do Keycloak restaurado todo usuário tombstoned e falha se
 #      algum deles continuar existindo.
@@ -43,7 +43,7 @@ for arquivo in app.dump keycloak.dump tombstones.dump; do
     [[ -s "$BACKUP_DIR/$arquivo" ]] || die "arquivo ausente ou vazio: $arquivo"
 done
 # tombstones.csv pode ser vazio quando o backup foi feito antes de qualquer
-# exclusão; o arquivo precisa existir.
+# exclusão confirmada; o arquivo precisa existir.
 [[ -f "$BACKUP_DIR/tombstones.csv" ]] || die 'arquivo ausente: tombstones.csv'
 
 if [[ -f "$BACKUP_DIR/SHA256SUMS" ]]; then
@@ -93,7 +93,7 @@ log 'Aplicando migrations (incluindo banco de tombstones)...'
 "${COMPOSE[@]}" run --rm --no-deps -T "$BACKEND_SERVICE" \
     python manage.py migrate --database=tombstones --noinput
 
-log 'Mesclando tombstones do backup (união, sem apagar registros atuais)...'
+log 'Mesclando tombstones confirmados do backup (união, sem apagar registros atuais)...'
 TMP_DIR="$(mktemp -d "$DEPLOY_DIR/.restore-tombstones-XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 cp "$BACKUP_DIR/tombstones.csv" "$TMP_DIR/tombstones.csv"
@@ -106,10 +106,21 @@ CREATE TEMP TABLE usuario_deletado_restore (
     origem varchar(20)
 );
 \copy usuario_deletado_restore FROM '/tmp/tombstones.csv' WITH (FORMAT csv)
-INSERT INTO usuario_deletado (id_usuario_hash, deletado_em, origem)
-SELECT id_usuario_hash, deletado_em, origem
+-- O CSV só contém tombstones confirmados (formato de 3 colunas, compatível
+-- com backups antigos). Se o banco vivo tem um pendente com o mesmo hash, a
+-- linha é promovida a confirmada; nunca é rebaixada.
+INSERT INTO usuario_deletado (
+    id_usuario_hash, deletado_em, origem, confirmado_em
+)
+SELECT id_usuario_hash, deletado_em, origem, deletado_em
 FROM usuario_deletado_restore
-ON CONFLICT (id_usuario_hash) DO NOTHING;
+ON CONFLICT (id_usuario_hash) DO UPDATE
+SET confirmado_em = COALESCE(
+        usuario_deletado.confirmado_em, EXCLUDED.confirmado_em
+    ),
+    deletado_em = LEAST(
+        usuario_deletado.deletado_em, EXCLUDED.deletado_em
+    );
 DROP TABLE usuario_deletado_restore;
 SQL
 

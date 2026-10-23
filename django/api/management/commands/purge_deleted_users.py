@@ -2,8 +2,9 @@
 
 Este comando é a garantia do direito ao esquecimento após uma restauração de
 backup: o restore script restaura o banco do Keycloak, sobe o serviço e então
-executa este comando. Todo usuário cujo hash SHA-256 esteja no banco
-independente de tombstones é deletado novamente. Com ``--verificar``, o
+executa este comando. Todo usuário cujo hash SHA-256 esteja em um tombstone
+confirmado é deletado novamente; tombstones pendentes são ignorados, pois
+indicam uma remoção que o Keycloak não confirmou. Com ``--verificar``, o
 comando relê o Keycloak e falha (exit code 1) se algum usuário deletado
 continuar existindo.
 

@@ -111,10 +111,11 @@ class UsuariosView(APIView):
         description=(
             'Remove fisicamente o usuário autenticado do Keycloak (nome, '
             'e-mail, senha e roles) e registra um tombstone anonimizado em um '
-            'banco independente, impedindo que a conta reapareça caso um backup '
-            'do Keycloak seja restaurado. Um e-mail de comprovação da exclusão '
-            'é enviado ao endereço cadastrado. Requer token Bearer; retorna 404 '
-            'se o usuário do token já não existir no Keycloak.'
+            'banco independente, confirmado após a remoção; assim a conta não '
+            'reaparece caso um backup do Keycloak seja restaurado. Um e-mail de '
+            'comprovação da exclusão é enviado ao endereço cadastrado. Requer '
+            'token Bearer; retorna 404 se o usuário do token já não existir no '
+            'Keycloak.'
         ),
         responses={
             204: OpenApiResponse(description='Conta deletada com sucesso.'),
@@ -215,9 +216,9 @@ class UsuarioDetalheView(APIView):
         summary='Deleta um usuário do Keycloak (operador)',
         description=(
             'Remove fisicamente o usuário especificado do Keycloak e registra '
-            'um tombstone anonimizado em um banco independente, impedindo que '
-            'ele reapareça após a restauração de um backup. Um e-mail de '
-            'comprovação é enviado ao endereço cadastrado. '
+            'um tombstone anonimizado em um banco independente, confirmado após '
+            'a remoção, impedindo que ele reapareça após a restauração de um '
+            'backup. Um e-mail de comprovação é enviado ao endereço cadastrado. '
             'Acesso restrito à realm role operador (a role admin isolada não '
             'é suficiente).'
         ),

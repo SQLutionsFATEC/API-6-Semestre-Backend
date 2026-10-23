@@ -9,6 +9,10 @@ O hash é determinístico, então o processo de restauração consegue reconhece
 mesmo usuário em um backup e removê-lo novamente. Como o id do Keycloak é um
 UUID (alta entropia), o hash não é reversível na prática e o banco de
 tombstones não guarda dado pessoal diretamente identificável.
+
+O tombstone nasce pendente e só é confirmado depois que o Keycloak conclui a
+remoção. Uma falha no Keycloak deixa o registro pendente, que não é usado pelo
+purge, e a operação pode ser tentada de novo.
 """
 
 import hashlib
@@ -34,10 +38,11 @@ def hash_id_usuario(id_usuario):
 
 
 def registrar_usuario_deletado(id_usuario, origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO):
-    """Grava (de forma idempotente) o tombstone de um usuário deletado.
+    """Grava (de forma idempotente) um tombstone pendente para o usuário.
 
     Retorna ``(registro, criado)``. Chamadas repetidas para o mesmo id não
-    duplicam o registro e preservam a origem do primeiro registro.
+    duplicam o registro e preservam a origem do primeiro registro. A exclusão
+    só passa a valer para o purge depois de ``confirmar_usuario_deletado``.
     """
     id_hash = hash_id_usuario(id_usuario)
     registro, criado = UsuarioDeletado.objects.using(TOMBSTONE_DB).get_or_create(
@@ -47,21 +52,36 @@ def registrar_usuario_deletado(id_usuario, origem=UsuarioDeletado.ORIGEM_AUTOATE
     return registro, criado
 
 
+def confirmar_usuario_deletado(id_usuario):
+    """Confirma um tombstone pendente após a remoção no Keycloak.
+
+    Retorna True se havia um tombstone pendente para o id e ele foi
+    confirmado; False se o registro não existia ou já estava confirmado.
+    """
+    id_hash = hash_id_usuario(id_usuario)
+    atualizados = (
+        UsuarioDeletado.objects.using(TOMBSTONE_DB)
+        .filter(id_usuario_hash=id_hash, confirmado_em__isnull=True)
+        .update(confirmado_em=timezone.now())
+    )
+    return atualizados > 0
+
+
 def listar_hashes_usuarios_deletados():
-    """Lista os hashes de todos os usuários deletados registrados."""
+    """Lista os hashes dos usuários deletados já confirmados."""
     return list(
-        UsuarioDeletado.objects.using(TOMBSTONE_DB).values_list(
-            'id_usuario_hash', flat=True
-        )
+        UsuarioDeletado.objects.using(TOMBSTONE_DB)
+        .filter(confirmado_em__isnull=False)
+        .values_list('id_usuario_hash', flat=True)
     )
 
 
 def usuario_esta_deletado(id_usuario):
-    """Indica se o id informado já possui um tombstone."""
+    """Indica se o id informado possui um tombstone confirmado."""
     id_hash = hash_id_usuario(id_usuario)
     return (
         UsuarioDeletado.objects.using(TOMBSTONE_DB)
-        .filter(id_usuario_hash=id_hash)
+        .filter(id_usuario_hash=id_hash, confirmado_em__isnull=False)
         .exists()
     )
 
@@ -69,13 +89,19 @@ def usuario_esta_deletado(id_usuario):
 def deletar_usuario(id_usuario, origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO):
     """Deleta fisicamente um usuário, preservando a prova da exclusão.
 
-    Ordem deliberada:
+    O tombstone funciona em duas fases:
       1. lê o usuário no Keycloak (404 se ele não existir);
-      2. grava o tombstone ANTES de deletar — se o Keycloak falhar depois, o
-         hash permanece e o usuário não ressuscita em uma restauração;
+      2. grava o tombstone como pendente;
       3. deleta o usuário do Keycloak (remoção física de nome, e-mail, senha,
          roles e demais dados pessoais);
-      4. envia o e-mail de comprovação da exclusão (LGPD).
+      4. confirma o tombstone;
+      5. envia o e-mail de comprovação da exclusão (LGPD).
+
+    Se o Keycloak falhar, o tombstone permanece pendente e a exceção é
+    propagada: a operação pode ser tentada novamente e o purge nunca trata um
+    pendente como exclusão concluída. Se o DELETE retornar 404 depois de o
+    usuário ter sido lido, outra requisição já o removeu; o tombstone é
+    confirmado para que o resultado seja idempotente.
 
     O e-mail é best-effort: uma falha de SMTP não desfaz a exclusão já
     concluída, apenas é registrada no log.
@@ -83,7 +109,14 @@ def deletar_usuario(id_usuario, origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO):
     usuario = keycloak_admin.obter_usuario(id_usuario)
 
     registrar_usuario_deletado(id_usuario, origem=origem)
-    keycloak_admin.deletar_usuario(id_usuario)
+    try:
+        keycloak_admin.deletar_usuario(id_usuario)
+    except keycloak_admin.KeycloakAdminException as erro:
+        if erro.codigo_status != 404:
+            raise
+        # O usuário sumiu entre a leitura e o DELETE: o objetivo foi
+        # cumprido por outra requisição concorrente.
+    confirmar_usuario_deletado(id_usuario)
     enviar_email_comprovacao(usuario)
 
     return usuario

@@ -249,7 +249,7 @@ curl -s -X PATCH http://localhost:8000/api/usuarios/<id>/ \
 
 ## 7. Exclusão de usuários e banco de tombstones
 
-A exclusão é **física**: o usuário é removido do Keycloak (nome, e-mail, senha, roles e atributos). Para garantir que ele não volte após a restauração de um backup, cada exclusão grava um tombstone em um banco independente (`tombstone-db`, alias Django `tombstones`). O tombstone contém apenas o SHA-256 do id do Keycloak, a data e a origem (`autoatendimento`/`operador`) — nunca nome, e-mail ou o id em claro.
+A exclusão é **física**: o usuário é removido do Keycloak (nome, e-mail, senha, roles e atributos). Para garantir que ele não volte após a restauração de um backup, cada exclusão grava um tombstone em um banco independente (`tombstone-db`, alias Django `tombstones`). O tombstone nasce **pendente** e só é **confirmado** depois que o Keycloak conclui a remoção; apenas confirmados são usados na purga. Ele contém apenas o SHA-256 do id do Keycloak, a data, a origem (`autoatendimento`/`operador`) e a data de confirmação — nunca nome, e-mail ou o id em claro.
 
 - `DELETE /api/usuarios/` — o próprio usuário autenticado deleta a conta.
 - `DELETE /api/usuarios/{id}/` — exige a realm role `operador`; retorna `403` sem ela e `404` se o usuário não existir.
