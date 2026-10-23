@@ -133,8 +133,9 @@ Para inspecionar manualmente depois do restore:
 
 ```bash
 docker compose exec -T backend python manage.py purge_deleted_users --dry-run
-# Lista quantos tombstones confirmados a purga reconsideraria; a operação é
-# idempotente e reanonimiza quem ainda estiver no Keycloak.
+# Apenas informa quantos usuários do Keycloak correspondem a tombstones
+# confirmados e seriam anonimizados. Não altera o Keycloak. Para anonimizar
+# de fato, execute o comando sem --dry-run (a operação é idempotente).
 ```
 
 ## 5. Variáveis de ambiente
