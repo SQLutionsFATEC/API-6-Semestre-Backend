@@ -151,21 +151,22 @@ def test_deletar_por_id_sem_role_operador_retorna_403(keycloak_fake):
 
     assert resposta.status_code == status.HTTP_403_FORBIDDEN
     assert resposta.json()['detail'] == (
-        'Somente usuários com a role operador podem acessar este recurso.'
+        'Somente usuários com a role Operador ou Admin podem acessar este recurso.'
     )
     assert chamadas['anonimizar'] == []
     assert usuario_esta_deletado(ID_ALVO) is False
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
-def test_admin_sem_role_operador_nao_pode_deletar_por_id(keycloak_fake):
+def test_admin_sem_role_operador_pode_deletar_por_id(keycloak_fake):
     chamadas, _ = keycloak_fake
     cliente = _cliente(KeycloakUser(CLAIMS_ADMIN_SEM_OPERADOR))
 
     resposta = cliente.delete(reverse('usuario-detalhe', args=[ID_ALVO]))
 
-    assert resposta.status_code == status.HTTP_403_FORBIDDEN
-    assert chamadas['anonimizar'] == []
+    assert resposta.status_code == status.HTTP_204_NO_CONTENT
+    assert chamadas['anonimizar'] == [ID_ALVO]
+    assert usuario_esta_deletado(ID_ALVO) is True
 
 
 @pytest.mark.django_db(databases=['default', 'tombstones'])
