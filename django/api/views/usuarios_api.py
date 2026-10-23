@@ -142,7 +142,7 @@ class UsuariosView(APIView):
     )
     def delete(self, request):
         try:
-            delecao_usuario.deletar_usuario(
+            delecao_usuario.anonimizar_usuario(
                 request.user.id,
                 origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO,
             )
