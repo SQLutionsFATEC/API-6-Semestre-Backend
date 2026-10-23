@@ -130,6 +130,27 @@ class UsuariosView(APIView):
 
         return Response(UsuarioSerializer(usuario).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary='Deleta a própria conta permanentemente (autoatendimento)',
+        description='Remove fisicamente o usuário autenticado do Keycloak e registra um tombstone.',
+        responses={
+            204: OpenApiResponse(description='Conta deletada com sucesso.'),
+            401: OpenApiResponse(description='Usuário não autenticado.'),
+            404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
+            502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
+        },
+    )
+    def delete(self, request):
+        try:
+            delecao_usuario.deletar_usuario(
+                request.user.id,
+                origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO,
+            )
+        except (keycloak_admin.KeycloakAdminException, requests.RequestException) as erro:
+            return _resposta_erro_keycloak(erro)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class UsuarioDetalheView(APIView):
     """Lê, modifica e anonimiza um usuário do realm (admin/operador)."""
