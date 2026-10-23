@@ -27,7 +27,7 @@ def _representacao_anonimizada(usuario):
     return dict(
         usuario,
         username=f'anonimizado-{sufixo}',
-        email=f'anonimizado-{sufixo}@invalid.local',
+        email=f'{sufixo}@invalid.local',
         firstName='Anonimizado',
         lastName='',
         enabled=False,

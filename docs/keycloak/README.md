@@ -167,7 +167,7 @@ curl -s -X PUT "$KC/admin/realms/$REALM/users/<id>" \
   -H "Content-Type: application/json" \
   -d '{
     "username": "anonimizado-<hash>",
-    "email": "anonimizado-<hash>@invalid.local",
+    "email": "<hash>@invalid.local",
     "firstName": "Anonimizado",
     "lastName": "",
     "enabled": false,

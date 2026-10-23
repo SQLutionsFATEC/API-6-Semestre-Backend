@@ -305,7 +305,9 @@ def test_trocar_nivel_acesso_remove_antiga_e_atribui_nova(envio):
 
 def test_anonimizar_usuario_substitui_dados_e_desabilita(envio):
     feitas, enfileirar = envio
-    sufixo = 'hash-do-usuario'
+    # O hash real tem 64 caracteres; o local part do e-mail no Keycloak é
+    # limitado a 64, então o sufixo não pode ganhar o prefixo do username.
+    sufixo = 'a' * 64
     enfileirar(
         RespostaFake(status_code=204),  # PUT do usuário
         RespostaFake(status_code=204),  # logout
@@ -321,7 +323,8 @@ def test_anonimizar_usuario_substitui_dados_e_desabilita(envio):
     ]
     payload = feitas[0]['json']
     assert payload['username'] == f'anonimizado-{sufixo}'
-    assert payload['email'] == f'anonimizado-{sufixo}@invalid.local'
+    assert payload['email'] == f'{sufixo}@invalid.local'
+    assert len(payload['email'].split('@')[0]) == 64
     assert payload['firstName'] == 'Anonimizado'
     assert payload['lastName'] == ''
     assert payload['enabled'] is False
@@ -367,7 +370,7 @@ def test_usuario_esta_anonimizado_rejeita_dados_pessoais():
     sufixo = 'hash'
     anonimizado = {
         'username': f'anonimizado-{sufixo}',
-        'email': f'anonimizado-{sufixo}@invalid.local',
+        'email': f'{sufixo}@invalid.local',
         'firstName': 'Anonimizado',
         'lastName': '',
         'enabled': False,

@@ -37,6 +37,8 @@ O tombstone é gravado antes da anonimização no Keycloak, mas nasce **pendente
 
 A anonimização no Keycloak substitui nome, e-mail, username e atributos por valores genéricos, desabilita a conta e remove credenciais, realm roles e grupos. A conta continua existindo com o mesmo id, mas não é mais acessável e não contém os dados pessoais originais. O e-mail de comprovação da exclusão (LGPD) é enviado ao endereço lido antes da anonimização; o endereço não é persistido no banco de tombstones.
 
+> **Pré-requisito do realm:** a troca do username exige **Edit username** habilitado (`editUsernameAllowed: true`). O `realm-export.json` já traz essa opção; em um realm existente, habilite-a em *Realm Settings → Login → Edit username*. Sem isso, o Keycloak responde `400 error-user-attribute-read-only` e a anonimização fica pendente.
+
 ## 3. Scripts
 
 Os scripts ficam em `deploy/scripts/` e usam o `deploy/docker-compose.yaml`. Eles assumem os serviços `postgres`, `keycloak-db`, `tombstone-db`, `keycloak` e `backend` do compose de desenvolvimento usado na demonstração.

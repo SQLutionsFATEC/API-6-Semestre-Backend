@@ -293,9 +293,12 @@ def anonimizar_usuario(id_usuario, sufixo):
         raise ValueError('Id e sufixo são obrigatórios para anonimizar o usuário.')
 
     username = f'anonimizado-{sufixo}'
+    # O local part do e-mail tem limite de 64 caracteres no Keycloak; o hash
+    # SHA-256 tem exatamente 64, então ele é usado sem o prefixo do username.
+    email = f'{sufixo}@invalid.local'
     payload = {
         'username': username,
-        'email': f'{username}@invalid.local',
+        'email': email,
         'firstName': 'Anonimizado',
         'lastName': '',
         'enabled': False,
@@ -328,7 +331,7 @@ def usuario_esta_anonimizado(usuario, sufixo):
     username = f'anonimizado-{sufixo}'
     return (
         usuario.get('username') == username
-        and usuario.get('email') == f'{username}@invalid.local'
+        and usuario.get('email') == f'{sufixo}@invalid.local'
         and usuario.get('enabled') is False
         and (usuario.get('firstName') or '') == 'Anonimizado'
         and not (usuario.get('lastName') or '')
