@@ -30,14 +30,6 @@ class UsuariosView(APIView):
         
         return [IsAuthenticated(), IsAdminRole()]
 
-    def get_permissions(self):
-        # DELETE /api/usuarios/ é autoatendimento: qualquer usuário
-        # autenticado pode deletar a própria conta. As demais operações
-        # continuam restritas à role admin.
-        if self.request.method == 'DELETE':
-            return [IsAuthenticated()]
-        return [IsAuthenticated(), IsAdminRole()]
-
     @extend_schema(
         summary='Lista usuários do Keycloak (admin)',
         description=(
