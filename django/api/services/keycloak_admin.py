@@ -19,7 +19,11 @@ Endpoints usados:
     POST   /admin/realms/{realm}/users
     GET    /admin/realms/{realm}/users/{id}
     PUT    /admin/realms/{realm}/users/{id}
-    DELETE /admin/realms/{realm}/users/{id}
+    GET    /admin/realms/{realm}/users/{id}/credentials
+    DELETE /admin/realms/{realm}/users/{id}/credentials/{credentialId}
+    GET    /admin/realms/{realm}/users/{id}/groups
+    DELETE /admin/realms/{realm}/users/{id}/groups/{groupId}
+    POST   /admin/realms/{realm}/users/{id}/logout
     PUT    /admin/realms/{realm}/users/{id}/reset-password
     PUT    /admin/realms/{realm}/users/{id}/execute-actions-email
     GET    /admin/realms/{realm}/users/{id}/role-mappings[.../realm]
@@ -273,16 +277,138 @@ def atualizar_usuario(id_usuario, **campos):
     return obter_usuario(id_usuario)
 
 
-def deletar_usuario(id_usuario):
-    """Deleta o usuário do realm."""
-    resposta = _requisitar('DELETE', f'{_url_admin_realm()}/users/{id_usuario}')
+def anonimizar_usuario(id_usuario, sufixo):
+    """Substitui os dados pessoais do usuário e desabilita a conta.
+
+    A conta continua existindo no Keycloak para que o tombstone consiga
+    reconhecê-la em um backup restaurado, mas passa a ter username, e-mail e
+    nome genéricos, atributos vazios, nenhuma credencial, nenhuma realm role e
+    nenhum grupo. As sessões abertas são encerradas.
+
+    ``sufixo`` deve ser determinístico e único por usuário (o hash do id); ele
+    entra no username e no e-mail para evitar colisões entre contas
+    anonimizadas.
+    """
+    if not id_usuario or not sufixo:
+        raise ValueError('Id e sufixo são obrigatórios para anonimizar o usuário.')
+
+    username = f'anonimizado-{sufixo}'
+    # O local part do e-mail tem limite de 64 caracteres no Keycloak; o hash
+    # SHA-256 tem exatamente 64, então ele é usado sem o prefixo do username.
+    email = f'{sufixo}@invalid.local'
+    payload = {
+        'username': username,
+        'email': email,
+        'firstName': 'Anonimizado',
+        'lastName': '',
+        'enabled': False,
+        'emailVerified': False,
+        'attributes': {},
+        'requiredActions': [],
+    }
+    resposta = _requisitar(
+        'PUT', f'{_url_admin_realm()}/users/{id_usuario}', json=payload
+    )
     if resposta.status_code == 404:
         raise KeycloakAdminException(
             'Usuário não encontrado no Keycloak.',
             codigo_status=404,
             resposta=resposta.text,
         )
-    _verificar(resposta, 'deletar usuário')
+    _verificar(resposta, 'anonimizar usuário')
+
+    _encerrar_sessoes(id_usuario)
+    _remover_credenciais(id_usuario)
+    _remover_papeis_realm(id_usuario)
+    _remover_grupos(id_usuario)
+    return payload
+
+
+def usuario_esta_anonimizado(usuario, sufixo):
+    """Indica se a representação do usuário não contém mais dados pessoais."""
+    if not usuario or not sufixo:
+        return False
+    username = f'anonimizado-{sufixo}'
+    return (
+        usuario.get('username') == username
+        and usuario.get('email') == f'{sufixo}@invalid.local'
+        and usuario.get('enabled') is False
+        and (usuario.get('firstName') or '') == 'Anonimizado'
+        and not (usuario.get('lastName') or '')
+        and not (usuario.get('attributes') or {})
+        and not (usuario.get('requiredActions') or [])
+    )
+
+
+def _encerrar_sessoes(id_usuario):
+    """Encerra as sessões abertas; 404 significa que não havia sessão."""
+    resposta = _requisitar(
+        'POST', f'{_url_admin_realm()}/users/{id_usuario}/logout'
+    )
+    if resposta.status_code != 404:
+        _verificar(resposta, 'encerrar sessões do usuário')
+
+
+def _remover_credenciais(id_usuario):
+    """Remove senhas e demais credenciais do usuário."""
+    credenciais = listar_credenciais(id_usuario)
+    for credencial in credenciais:
+        id_credencial = credencial.get('id')
+        if not id_credencial:
+            continue
+        _verificar(
+            _requisitar(
+                'DELETE',
+                f'{_url_admin_realm()}/users/{id_usuario}/credentials/{id_credencial}',
+            ),
+            'remover credencial do usuário',
+        )
+
+
+def listar_credenciais(id_usuario):
+    """Lista as credenciais (senha, OTP etc.) do usuário."""
+    resposta = _requisitar(
+        'GET', f'{_url_admin_realm()}/users/{id_usuario}/credentials'
+    )
+    return _verificar(resposta, 'listar credenciais do usuário').json()
+
+
+def _remover_papeis_realm(id_usuario):
+    """Remove todas as realm roles atribuídas ao usuário."""
+    papeis = listar_papeis_realm_usuario(id_usuario)
+    if papeis:
+        _verificar(
+            _requisitar(
+                'DELETE',
+                f'{_url_admin_realm()}/users/{id_usuario}/role-mappings/realm',
+                json=papeis,
+            ),
+            'remover roles do usuário',
+        )
+
+
+def _remover_grupos(id_usuario):
+    """Remove o usuário de todos os grupos."""
+    grupos = listar_grupos_usuario(id_usuario)
+    for grupo in grupos:
+        id_grupo = grupo.get('id')
+        if not id_grupo:
+            continue
+        _verificar(
+            _requisitar(
+                'DELETE',
+                f'{_url_admin_realm()}/users/{id_usuario}/groups/{id_grupo}',
+            ),
+            'remover usuário do grupo',
+        )
+
+
+def listar_grupos_usuario(id_usuario):
+    """Lista os grupos aos quais o usuário pertence."""
+    resposta = _requisitar(
+        'GET', f'{_url_admin_realm()}/users/{id_usuario}/groups'
+    )
+    return _verificar(resposta, 'listar grupos do usuário').json()
 
 
 def definir_senha(id_usuario, senha, temporaria=True):

@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework.routers import DefaultRouter
@@ -34,8 +34,13 @@ urlpatterns = [
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/perfil/', PerfilView.as_view(), name='perfil'),
-    path('api/usuarios/', UsuariosView.as_view(), name='usuarios'),
-    path('api/usuarios/<str:id_usuario>/', UsuarioDetalheView.as_view(), name='usuario-detalhe'),
+    # Barra final opcional: atende tanto /api/usuarios/ quanto /api/usuarios.
+    re_path(r'^api/usuarios/?$', UsuariosView.as_view(), name='usuarios'),
+    re_path(
+        r'^api/usuarios/(?P<id_usuario>[^/]+)/?$',
+        UsuarioDetalheView.as_view(),
+        name='usuario-detalhe',
+    ),
     path('api/', include(router.urls)),
 ]
 

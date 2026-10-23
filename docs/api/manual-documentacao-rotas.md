@@ -26,6 +26,8 @@ A documentação deve ficar próxima da implementação da rota, no viewset corr
 
 - `django/api/views/documento_api.py`
 - `django/api/views/etiqueta_api.py`
+- `django/api/views/usuarios_api.py`
+- `django/api/views/perfil_api.py`
 
 Use `@extend_schema` quando a rota tiver parâmetros, payload, respostas ou comportamento que não possa ser inferido com segurança.
 
@@ -163,7 +165,47 @@ Exemplo de payload valido:
 
 O registro expõe `data_criacao`, preenchida uma única vez, e `data_atualizacao`, atualizada a cada salvamento.
 
-## 8. Convenções do projeto
+## 8. Anonimização de usuários (LGPD)
+
+As rotas de exclusão anonimizam o usuário no Keycloak — substituem nome, e-mail e username por valores genéricos, desabilitam a conta e removem credenciais, roles e grupos — e registram um **tombstone anonimizado** (SHA-256 do id) em um banco independente. O registro nasce pendente e só é confirmado depois que o Keycloak conclui a anonimização; apenas confirmados impedem que os dados pessoais reapareçam após a restauração de um backup. O fluxo completo de backup/restauração está em [backup-restore.md](backup-restore.md).
+
+| Rota | Método | Quem pode | Respostas |
+|---|---|---|---|
+| `/api/usuarios/` | DELETE | qualquer usuário autenticado | `204`, `401`, `404`, `502` |
+| `/api/usuarios/{id_usuario}/` | DELETE | realm role `operador` ou `admin` | `204`, `401`, `403`, `404`, `502` |
+
+- A barra final é opcional nas duas rotas (`/api/usuarios` também funciona).
+- `404` indica que o usuário não existe no Keycloak; o tombstone não é criado.
+- `403` na rota por id indica que o token não possui a role `operador` nem a role `admin`.
+- `502` indica falha de comunicação com o Keycloak. Se a falha ocorrer depois do tombstone, ele fica **pendente** e não conta como anonimização concluída; o usuário pode tentar novamente.
+- O e-mail de comprovação da exclusão é enviado ao endereço cadastrado. Em desenvolvimento o backend de e-mail padrão é o console; em produção configure `EMAIL_BACKEND`/`EMAIL_HOST` (ver `deploy/.env.example`).
+
+Declare no Swagger os status realmente retornados:
+
+```python
+@extend_schema(
+    operation_id='usuarios_delete_detail',
+    summary='Anonimiza um usuário do Keycloak (admin/operador)',
+    description=(
+        'Anonimiza o usuário, registra um tombstone pendente, o confirma após '
+        'a anonimização e envia e-mail de comprovação. '
+        'Acesso restrito às roles admin ou operador.'
+    ),
+    responses={
+        204: OpenApiResponse(description='Usuário anonimizado com sucesso.'),
+        401: OpenApiResponse(description='Usuário não autenticado.'),
+        403: OpenApiResponse(description='Usuário sem as roles admin e operador.'),
+        404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
+        502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
+    },
+)
+def delete(self, request, id_usuario):
+    ...
+```
+
+> Use `operation_id` explícito nas duas rotas de deleção: sem ele, o `drf-spectacular` gera o mesmo id de operação para ambas e o schema emite aviso de colisão.
+
+## 9. Convenções do projeto
 
 - Mantenha as rotas sob o prefixo `/api/`.
 - Use nomes em português consistentes com os recursos existentes.

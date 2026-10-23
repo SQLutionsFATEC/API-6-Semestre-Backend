@@ -63,8 +63,15 @@ services:
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-sqlutions}
       - KEYCLOAK_BACKEND_CLIENT_ID=${KEYCLOAK_BACKEND_CLIENT_ID:-backend}
       - KEYCLOAK_BACKEND_CLIENT_SECRET=${KEYCLOAK_BACKEND_CLIENT_SECRET:-backend-secret}
+      - DELETED_USERS_DB_NAME=${DELETED_USERS_DB_NAME:-deleted_users_db}
+      - DELETED_USERS_DB_USER=${POSTGRES_USER:-sqlutions}
+      - DELETED_USERS_DB_PASSWORD=${POSTGRES_PASSWORD:-senha_padrao}
+      - DELETED_USERS_DB_HOST=tombstone-db
+      - DELETED_USERS_DB_PORT=5432
     depends_on:
       postgres:
+        condition: service_healthy
+      tombstone-db:
         condition: service_healthy
     volumes:
       - ../django:/app
@@ -108,6 +115,27 @@ services:
       retries: 10
       start_period: 10s
 
+  # -------------------- Database (tombstones) --------------------
+  # Banco independente: guarda apenas hashes dos usuários deletados e NÃO é
+  # restaurado junto com os backups da aplicação/Keycloak.
+  tombstone-db:
+    image: postgres:16-alpine
+    container_name: tombstone-db
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-sqlutions}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-senha_padrao}
+      - POSTGRES_DB=${DELETED_USERS_DB_NAME:-deleted_users_db}
+    ports:
+      - "5434:5432"
+    volumes:
+      - tombstonedata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sqlutions} -d ${DELETED_USERS_DB_NAME:-deleted_users_db}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   # -------------------- Ollama --------------------
   ollama:
     profiles:
@@ -141,5 +169,6 @@ services:
 
 volumes:
   postgresdata:
+  tombstonedata:
   ollamadata:
   keycloakdb:
