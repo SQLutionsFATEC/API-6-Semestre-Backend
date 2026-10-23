@@ -10,6 +10,7 @@ from api.serializers.usuario_serializer import (
     UsuarioCreateSerializer,
     UsuarioSerializer,
     UsuarioUpdateSerializer,
+    UsuarioPerfilUpdateSerializer,
 )
 from api.services import keycloak_admin
 
@@ -19,7 +20,10 @@ from .perfil_api import _resposta_erro_keycloak
 class UsuariosView(APIView):
     """Lista os usuários do realm e cria novos usuários (somente role admin)."""
 
-    permission_classes = [IsAuthenticated, IsAdminRole]
+    def get_permissions(self):
+        if self.request.method == 'PATCH':
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsAdminRole()]
 
     @extend_schema(
         summary='Lista usuários do Keycloak (admin)',
@@ -95,6 +99,31 @@ class UsuariosView(APIView):
         return Response(
             UsuarioSerializer(usuario).data, status=status.HTTP_201_CREATED
         )
+
+    @extend_schema(
+        summary='Atualiza o próprio perfil',
+        description='Permite que o usuário autenticado edite seu próprio nome e email.',
+        request=UsuarioPerfilUpdateSerializer,
+        responses={
+            200: UsuarioSerializer,
+            400: OpenApiResponse(description='Dados inválidos.'),
+            401: OpenApiResponse(description='Usuário não autenticado.'),
+            502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
+        },
+    )
+    def patch(self, request):
+        serializer = UsuarioPerfilUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            usuario = keycloak_admin.atualizar_usuario(
+                request.user.id, **serializer.validated_data
+            )
+            usuario['realmRoles'] = keycloak_admin.listar_papeis_realm_usuario(request.user.id)
+        except (keycloak_admin.KeycloakAdminException, requests.RequestException) as erro:
+            return _resposta_erro_keycloak(erro)
+
+        return Response(UsuarioSerializer(usuario).data, status=status.HTTP_200_OK)
 
 
 class UsuarioDetalheView(APIView):
