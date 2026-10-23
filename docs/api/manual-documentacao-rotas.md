@@ -172,11 +172,11 @@ As rotas de exclusão anonimizam o usuário no Keycloak — substituem nome, e-m
 | Rota | Método | Quem pode | Respostas |
 |---|---|---|---|
 | `/api/usuarios/` | DELETE | qualquer usuário autenticado | `204`, `401`, `404`, `502` |
-| `/api/usuarios/{id_usuario}/` | DELETE | realm role `operador` | `204`, `401`, `403`, `404`, `502` |
+| `/api/usuarios/{id_usuario}/` | DELETE | realm role `operador` ou `admin` | `204`, `401`, `403`, `404`, `502` |
 
 - A barra final é opcional nas duas rotas (`/api/usuarios` também funciona).
 - `404` indica que o usuário não existe no Keycloak; o tombstone não é criado.
-- `403` na rota por id indica que o token não possui a role `operador` (a role `admin` isolada não é suficiente).
+- `403` na rota por id indica que o token não possui a role `operador` nem a role `admin`.
 - `502` indica falha de comunicação com o Keycloak. Se a falha ocorrer depois do tombstone, ele fica **pendente** e não conta como anonimização concluída; o usuário pode tentar novamente.
 - O e-mail de comprovação da exclusão é enviado ao endereço cadastrado. Em desenvolvimento o backend de e-mail padrão é o console; em produção configure `EMAIL_BACKEND`/`EMAIL_HOST` (ver `deploy/.env.example`).
 
@@ -185,16 +185,16 @@ Declare no Swagger os status realmente retornados:
 ```python
 @extend_schema(
     operation_id='usuarios_delete_detail',
-    summary='Anonimiza um usuário do Keycloak (operador)',
+    summary='Anonimiza um usuário do Keycloak (admin/operador)',
     description=(
         'Anonimiza o usuário, registra um tombstone pendente, o confirma após '
         'a anonimização e envia e-mail de comprovação. '
-        'Acesso restrito à role operador.'
+        'Acesso restrito às roles admin ou operador.'
     ),
     responses={
         204: OpenApiResponse(description='Usuário anonimizado com sucesso.'),
         401: OpenApiResponse(description='Usuário não autenticado.'),
-        403: OpenApiResponse(description='Usuário sem a role operador.'),
+        403: OpenApiResponse(description='Usuário sem as roles admin e operador.'),
         404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
         502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
     },

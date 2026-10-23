@@ -157,7 +157,7 @@ class UsuarioDetalheView(APIView):
         responses={
             200: UsuarioSerializer,
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Requer nível Operador.'),
+            403: OpenApiResponse(description='Requer nível Operador ou Admin.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
@@ -184,7 +184,7 @@ class UsuarioDetalheView(APIView):
             200: UsuarioSerializer,
             400: OpenApiResponse(description='Dados inválidos.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Requer nível Operador.'),
+            403: OpenApiResponse(description='Requer nível Operador ou Admin.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
