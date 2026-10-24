@@ -11,6 +11,17 @@ Com o backend em execução:
 
 O Swagger UI permite consultar os endpoints, visualizar parâmetros e executar requisições. O schema OpenAPI pode ser usado por ferramentas de geração de clientes e validação.
 
+As rotas de documentos exigem um access token do Keycloak no cabeçalho:
+
+```http
+Authorization: Bearer <access-token>
+```
+
+Sem token, as rotas retornam `401 Unauthorized`. A listagem, os filtros, a
+consulta por ID e a consulta de etiquetas exigem apenas autenticação válida.
+Upload, edição, exclusão e vínculo de etiquetas exigem que o token contenha o
+nível de acesso `operador`; caso contrário, a API retorna `403 Forbidden`.
+
 Para gerar e validar o schema localmente:
 
 ```bash

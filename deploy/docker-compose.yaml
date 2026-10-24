@@ -85,7 +85,7 @@ services:
         # Usa a variável do .env ou assume 'main' como padrão
         - FRONTEND_BRANCH=${FRONTEND_BRANCH:-main}
         # Substitua pela URL real do repositório de frontend do 5º semestre
-        - REPO_URL=https://github.com/SQLutions-FATEC/API-5-Semestre-Frontend
+        - REPO_URL=https://github.com/SQLutionsFATEC/API-6-Semestre-Frontend
     container_name: nextjs-app
     command: npm run dev -- --host 0.0.0.0 --port 3000
     ports:
