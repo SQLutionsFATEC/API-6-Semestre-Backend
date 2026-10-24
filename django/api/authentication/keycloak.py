@@ -108,7 +108,7 @@ def obter_jwks():
             if agora - _jwks_cache['emissao'] < settings.KEYCLOAK_JWKS_TTL:
                 return _jwks_cache['jwks']
 
-        url = settings.KEYCLOAK_ISSUER + JWKS_PATH
+        url = settings.KEYCLOAK_URL + f'/realms/{settings.KEYCLOAK_REALM}' + JWKS_PATH
         resposta = requests.get(url, timeout=10)
         resposta.raise_for_status()
         jwks = resposta.json()

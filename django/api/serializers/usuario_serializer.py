@@ -1,5 +1,6 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from django.core.validators import RegexValidator
 
 from api.services.keycloak_admin import NIVEIS_ACESSO, SETORES
 
@@ -67,7 +68,16 @@ class UsuarioSerializer(serializers.Serializer):
 class UsuarioPerfilUpdateSerializer(serializers.Serializer):
     """Atualização do próprio perfil: somente nome e email."""
 
-    nome = serializers.CharField(required=False, max_length=255)
+    nome = serializers.CharField(
+        required=False,
+        max_length=255,
+        validators=[
+            RegexValidator(
+                regex=r'^[a-zA-ZÀ-ÿ\s]+$',
+                message="O nome não deve conter caracteres que não são letras ou espaço simples."
+            )
+        ]
+    )
     sobrenome = serializers.CharField(required=False, max_length=255)
     email = serializers.EmailField(required=False)
 

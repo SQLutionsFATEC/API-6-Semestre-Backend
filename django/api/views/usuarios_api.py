@@ -5,21 +5,30 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from api.permissions import IsAdminRole
+from api.models import UsuarioDeletado
+from api.permissions import IsAdminRole, IsOperadorOrAdminRole
 from api.serializers.usuario_serializer import (
     UsuarioCreateSerializer,
     UsuarioSerializer,
     UsuarioUpdateSerializer,
 )
-from api.services import keycloak_admin
+from api.services import delecao_usuario, keycloak_admin
 
 from .perfil_api import _resposta_erro_keycloak
 
 
 class UsuariosView(APIView):
-    """Lista os usuários do realm e cria novos usuários (somente role admin)."""
+    """Lista/cria usuários (admin) e deleta a própria conta (autenticado)."""
 
     permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get_permissions(self):
+        # DELETE /api/usuarios/ é autoatendimento: qualquer usuário
+        # autenticado pode deletar a própria conta. As demais operações
+        # continuam restritas à role admin.
+        if self.request.method == 'DELETE':
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsAdminRole()]
 
     @extend_schema(
         summary='Lista usuários do Keycloak (admin)',
@@ -96,11 +105,42 @@ class UsuariosView(APIView):
             UsuarioSerializer(usuario).data, status=status.HTTP_201_CREATED
         )
 
+    @extend_schema(
+        operation_id='usuarios_delete_self',
+        summary='Anonimiza a própria conta',
+        description=(
+            'Anonimiza o usuário autenticado no Keycloak: substitui nome, '
+            'e-mail e username por valores genéricos, desabilita a conta e '
+            'remove credenciais, roles e grupos. Registra um tombstone em um '
+            'banco independente, confirmado após a anonimização, para que os '
+            'dados pessoais não reapareçam caso um backup do Keycloak seja '
+            'restaurado. Um e-mail de comprovação é enviado ao endereço '
+            'cadastrado. Requer token Bearer; retorna 404 se o usuário do token '
+            'já não existir no Keycloak.'
+        ),
+        responses={
+            204: OpenApiResponse(description='Conta anonimizada com sucesso.'),
+            401: OpenApiResponse(description='Usuário não autenticado.'),
+            404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
+            502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
+        },
+    )
+    def delete(self, request):
+        try:
+            delecao_usuario.anonimizar_usuario(
+                request.user.id,
+                origem=UsuarioDeletado.ORIGEM_AUTOATENDIMENTO,
+            )
+        except (keycloak_admin.KeycloakAdminException, requests.RequestException) as erro:
+            return _resposta_erro_keycloak(erro)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class UsuarioDetalheView(APIView):
-    """Lê, modifica e deleta um usuário do realm (somente role admin)."""
+    """Lê, modifica e anonimiza um usuário do realm (admin/operador)."""
 
-    permission_classes = [IsAuthenticated, IsAdminRole]
+    permission_classes = [IsAuthenticated, IsOperadorOrAdminRole]
 
     def _buscar(self, id_usuario):
         usuario = keycloak_admin.obter_usuario(id_usuario)
@@ -108,7 +148,7 @@ class UsuarioDetalheView(APIView):
         return usuario
 
     @extend_schema(
-        summary='Consulta os campos e permissões de um usuário (admin)',
+        summary='Consulta os campos e permissões de um usuário',
         description=(
             'Lê os campos do usuário, incluindo nivel_acesso (realm role, '
             'ex.: operador) e setor (atributo, ex.: juridico). É a leitura '
@@ -117,7 +157,7 @@ class UsuarioDetalheView(APIView):
         responses={
             200: UsuarioSerializer,
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Usuário sem a role admin.'),
+            403: OpenApiResponse(description='Requer nível Operador ou Admin.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
@@ -131,20 +171,20 @@ class UsuarioDetalheView(APIView):
         return Response(UsuarioSerializer(usuario).data, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary='Modifica campos de um usuário (admin)',
+        summary='Modifica campos de um usuário (admin/operador)',
         description=(
             'Modifica nome, sobrenome, email, setor (atributo do usuário), '
             'nivel_acesso (realm role, ex.: de basico para operador) e/ou '
             'senha. Se a nova senha for temporária (senha_temporaria=true, '
             'padrão), o usuário é obrigado a trocá-la no próximo login. '
-            'Acesso restrito à realm role admin.'
+            'Acesso restrito à realm role admin ou operador.'
         ),
         request=UsuarioUpdateSerializer,
         responses={
             200: UsuarioSerializer,
             400: OpenApiResponse(description='Dados inválidos.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Usuário sem a role admin.'),
+            403: OpenApiResponse(description='Requer nível Operador ou Admin.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
@@ -164,22 +204,31 @@ class UsuarioDetalheView(APIView):
         return Response(UsuarioSerializer(usuario).data, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary='Deleta um usuário do Keycloak (admin)',
+        operation_id='usuarios_delete_detail',
+        summary='Anonimiza um usuário do Keycloak (admin/operador)',
         description=(
-            'Remove o usuário do realm do Keycloak. Acesso restrito à realm '
-            'role admin.'
+            'Anonimiza o usuário especificado no Keycloak: substitui nome, '
+            'e-mail e username por valores genéricos, desabilita a conta e '
+            'remove credenciais, roles e grupos. Registra um tombstone em um '
+            'banco independente, confirmado após a anonimização, para que os '
+            'dados pessoais não reapareçam após a restauração de um backup. '
+            'Um e-mail de comprovação é enviado ao endereço cadastrado. '
+            'Acesso restrito à realm role admin ou operador.'
         ),
         responses={
-            204: OpenApiResponse(description='Usuário deletado com sucesso.'),
+            204: OpenApiResponse(description='Usuário anonimizado com sucesso.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Usuário sem a role admin.'),
+            403: OpenApiResponse(description='Requer nível Operador ou Admin.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
     )
     def delete(self, request, id_usuario):
         try:
-            keycloak_admin.deletar_usuario(id_usuario)
+            delecao_usuario.anonimizar_usuario(
+                id_usuario,
+                origem=UsuarioDeletado.ORIGEM_OPERADOR,
+            )
         except (keycloak_admin.KeycloakAdminException, requests.RequestException) as erro:
             return _resposta_erro_keycloak(erro)
 

@@ -843,21 +843,25 @@ class DocumentoAuthorizationTest(TestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-    def test_detalhe_mesmo_setor_nivel_menor_retorna_403(self):
-        """TI/Basico tenta acessar TI/Militar → 403 (nível menor)."""
+    def test_detalhe_mesmo_setor_nivel_menor_nao_retorna_arquivo(self):
+        """TI/Basico vê os metadados, mas não recebe o arquivo TI/Militar."""
         self.client.force_authenticate(user=self.user_basico_ti)
         response = self.client.get(
             f'/api/documentos/{self.doc_ti_militar.id_documento}/'
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('data', response.json())
+        self.assertFalse(response.json()['acesso_permitido'])
 
-    def test_detalhe_setor_diferente_retorna_403(self):
-        """TI/Basico tenta acessar Tecnico/Basico → 403 (setor diferente)."""
+    def test_detalhe_setor_diferente_nao_retorna_arquivo(self):
+        """TI/Basico vê os metadados, mas não recebe o arquivo de outro setor."""
         self.client.force_authenticate(user=self.user_basico_ti)
         response = self.client.get(
             f'/api/documentos/{self.doc_tecnico_basico.id_documento}/'
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('data', response.json())
+        self.assertFalse(response.json()['acesso_permitido'])
 
     def test_detalhe_operador_acessa_qualquer_documento(self):
         """RH/Operador acessa TI/Militar → 200 (operador tem acesso total)."""

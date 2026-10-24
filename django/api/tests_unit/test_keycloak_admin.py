@@ -9,9 +9,9 @@ from django.conf import settings
 from api.services import keycloak_admin
 from api.services.keycloak_admin import (
     KeycloakAdminException,
-    criar_usuario,
+    anonimizar_usuario,
     atualizar_usuario,
-    deletar_usuario,
+    criar_usuario,
     definir_senha,
     listar_papeis_realm_usuario,
     listar_papeis_usuario,
@@ -20,6 +20,7 @@ from api.services.keycloak_admin import (
     obter_token_admin,
     obter_usuario,
     trocar_nivel_acesso,
+    usuario_esta_anonimizado,
 )
 
 ID_USUARIO = 'id-usuario-9'
@@ -302,23 +303,88 @@ def test_trocar_nivel_acesso_remove_antiga_e_atribui_nova(envio):
     assert atribuido['name'] == 'operador'
 
 
-def test_deletar_usuario_chama_delete(envio):
+def test_anonimizar_usuario_substitui_dados_e_desabilita(envio):
     feitas, enfileirar = envio
-    enfileirar(RespostaFake(status_code=204))
+    # O hash real tem 64 caracteres; o local part do e-mail no Keycloak é
+    # limitado a 64, então o sufixo não pode ganhar o prefixo do username.
+    sufixo = 'a' * 64
+    enfileirar(
+        RespostaFake(status_code=204),  # PUT do usuário
+        RespostaFake(status_code=204),  # logout
+        RespostaFake(status_code=200, dados=[]),  # credenciais
+        RespostaFake(status_code=200, dados=[]),  # realm roles
+        RespostaFake(status_code=200, dados=[]),  # grupos
+    )
 
-    deletar_usuario(ID_USUARIO)
+    anonimizar_usuario(ID_USUARIO, sufixo=sufixo)
 
-    assert feitas[0]['metodo'] == 'DELETE'
+    assert [chamada['metodo'] for chamada in feitas] == [
+        'PUT', 'POST', 'GET', 'GET', 'GET'
+    ]
+    payload = feitas[0]['json']
+    assert payload['username'] == f'anonimizado-{sufixo}'
+    assert payload['email'] == f'{sufixo}@invalid.local'
+    assert len(payload['email'].split('@')[0]) == 64
+    assert payload['firstName'] == 'Anonimizado'
+    assert payload['lastName'] == ''
+    assert payload['enabled'] is False
+    assert payload['attributes'] == {}
+    assert feitas[1]['url'].endswith('/logout')
+    assert usuario_esta_anonimizado(payload, sufixo) is True
 
 
-def test_deletar_usuario_inexistente_levanta_404(envio):
+def test_anonimizar_usuario_remove_credenciais_roles_e_grupos(envio):
+    feitas, enfileirar = envio
+    sufixo = 'hash-do-usuario'
+    enfileirar(
+        RespostaFake(status_code=204),  # PUT do usuário
+        RespostaFake(status_code=204),  # logout
+        RespostaFake(status_code=200, dados=[{'id': 'cred-1'}]),
+        RespostaFake(status_code=204),  # DELETE credencial
+        RespostaFake(status_code=200, dados=[{'id': 'role-1', 'name': 'basico'}]),
+        RespostaFake(status_code=204),  # DELETE roles
+        RespostaFake(status_code=200, dados=[{'id': 'grupo-1'}]),
+        RespostaFake(status_code=204),  # DELETE grupo
+    )
+
+    anonimizar_usuario(ID_USUARIO, sufixo=sufixo)
+
+    metodos = [chamada['metodo'] for chamada in feitas]
+    assert metodos == ['PUT', 'POST', 'GET', 'DELETE', 'GET', 'DELETE', 'GET', 'DELETE']
+    assert feitas[3]['url'].endswith('/credentials/cred-1')
+    assert feitas[5]['json'] == [{'id': 'role-1', 'name': 'basico'}]
+    assert feitas[7]['url'].endswith('/groups/grupo-1')
+
+
+def test_anonimizar_usuario_inexistente_levanta_404(envio):
     _, enfileirar = envio
     enfileirar(RespostaFake(status_code=404, text='not found'))
 
     with pytest.raises(KeycloakAdminException) as erro:
-        deletar_usuario(ID_USUARIO)
+        anonimizar_usuario(ID_USUARIO, sufixo='hash')
 
     assert erro.value.codigo_status == 404
+
+
+def test_usuario_esta_anonimizado_rejeita_dados_pessoais():
+    sufixo = 'hash'
+    anonimizado = {
+        'username': f'anonimizado-{sufixo}',
+        'email': f'{sufixo}@invalid.local',
+        'firstName': 'Anonimizado',
+        'lastName': '',
+        'enabled': False,
+        'attributes': {},
+        'requiredActions': [],
+    }
+
+    assert usuario_esta_anonimizado(anonimizado, sufixo) is True
+    assert usuario_esta_anonimizado(
+        dict(anonimizado, email='maria@example.com'), sufixo
+    ) is False
+    assert usuario_esta_anonimizado(
+        dict(anonimizado, enabled=True), sufixo
+    ) is False
 
 
 def test_definir_senha_temporaria(envio):

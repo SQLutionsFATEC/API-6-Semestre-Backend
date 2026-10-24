@@ -30,3 +30,15 @@ class IsOperador(BasePermission):
         if nivel is None:
             nivel = getattr(usuario, 'nivel', None)
         return isinstance(nivel, str) and nivel.lower() == 'operador'
+    
+class IsOperadorOrAdminRole(BasePermission):
+    """Permite acesso a usuários com a realm role 'operador' ou 'admin' do Keycloak."""
+
+    message = 'Somente usuários com a role Operador ou Admin podem acessar este recurso.'
+
+    def has_permission(self, request, view):
+        usuario = request.user
+        tem_verificacao = getattr(usuario, 'has_role', None)
+        if not tem_verificacao:
+            return False
+        return usuario.has_role('admin') or usuario.has_role('operador')

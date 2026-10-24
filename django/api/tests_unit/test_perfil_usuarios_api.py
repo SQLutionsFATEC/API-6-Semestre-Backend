@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from api.authentication.keycloak import KeycloakUser
+from api.services.delecao_usuario import hash_id_usuario
 from api.services.keycloak_admin import KeycloakAdminException
 
 CLAIMS_USUARIO = {
@@ -261,20 +262,27 @@ def test_usuario_detalhe_patch_troca_senha_temporaria(mock_admin):
     assert dados['setor'] == 'qualitativo'
 
 
-def test_usuario_detalhe_deleta(mock_admin):
-    removidos = []
+@pytest.mark.django_db(databases=['default', 'tombstones'])
+def test_usuario_detalhe_anonimiza(mock_admin, settings):
+    settings.EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
+    anonimizados = []
 
-    def deletar(id_usuario):
-        removidos.append(id_usuario)
+    def anonimizar(id_usuario, sufixo):
+        anonimizados.append((id_usuario, sufixo))
 
-    mock_admin(deletar_usuario=deletar)
+    mock_admin(
+        obter_usuario=lambda id_usuario: dict(USUARIO_REPRESENTACAO),
+        anonimizar_usuario=anonimizar,
+    )
     cliente = _cliente_com()
     cliente.force_authenticate(user=KeycloakUser(CLAIMS_ADMIN))
 
     resposta = cliente.delete(reverse('usuario-detalhe', args=['id-usuario-comum']))
 
     assert resposta.status_code == status.HTTP_204_NO_CONTENT
-    assert removidos == ['id-usuario-comum']
+    assert anonimizados == [
+        ('id-usuario-comum', hash_id_usuario('id-usuario-comum'))
+    ]
 
 
 def test_usuario_detalhe_404_quando_inexistente(mock_admin):

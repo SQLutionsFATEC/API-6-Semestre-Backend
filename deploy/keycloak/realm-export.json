@@ -3,6 +3,7 @@
   "enabled": true,
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
+  "editUsernameAllowed": true,
   "resetPasswordAllowed": true,
   "sslRequired": "external",
   "defaultRoles": [
@@ -83,7 +84,7 @@
         "*"
       ],
       "webOrigins": [
-        "+"
+        "*"
       ],
       "protocolMappers": [
         {
