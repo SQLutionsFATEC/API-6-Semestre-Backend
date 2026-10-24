@@ -31,6 +31,7 @@ class IsOperador(BasePermission):
             nivel = getattr(usuario, 'nivel', None)
         return isinstance(nivel, str) and nivel.lower() == 'operador'
     
+    
 class IsOperadorOrAdminRole(BasePermission):
     """Permite acesso a usuários com a realm role 'operador' ou 'admin' do Keycloak."""
 
