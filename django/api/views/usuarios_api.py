@@ -11,6 +11,7 @@ from api.serializers.usuario_serializer import (
     UsuarioCreateSerializer,
     UsuarioSerializer,
     UsuarioUpdateSerializer,
+    UsuarioPerfilUpdateSerializer,
 )
 from api.services import delecao_usuario, keycloak_admin
 
@@ -20,14 +21,13 @@ from .perfil_api import _resposta_erro_keycloak
 class UsuariosView(APIView):
     """Lista/cria usuários (admin) e deleta a própria conta (autenticado)."""
 
-    permission_classes = [IsAuthenticated, IsAdminRole]
-
     def get_permissions(self):
-        # DELETE /api/usuarios/ é autoatendimento: qualquer usuário
-        # autenticado pode deletar a própria conta. As demais operações
-        # continuam restritas à role admin.
+        if self.request.method == 'PATCH':
+            return [IsAuthenticated()]
+        
         if self.request.method == 'DELETE':
             return [IsAuthenticated()]
+        
         return [IsAuthenticated(), IsAdminRole()]
 
     @extend_schema(
@@ -106,20 +106,35 @@ class UsuariosView(APIView):
         )
 
     @extend_schema(
-        operation_id='usuarios_delete_self',
-        summary='Anonimiza a própria conta',
-        description=(
-            'Anonimiza o usuário autenticado no Keycloak: substitui nome, '
-            'e-mail e username por valores genéricos, desabilita a conta e '
-            'remove credenciais, roles e grupos. Registra um tombstone em um '
-            'banco independente, confirmado após a anonimização, para que os '
-            'dados pessoais não reapareçam caso um backup do Keycloak seja '
-            'restaurado. Um e-mail de comprovação é enviado ao endereço '
-            'cadastrado. Requer token Bearer; retorna 404 se o usuário do token '
-            'já não existir no Keycloak.'
-        ),
+        summary='Atualiza o próprio perfil',
+        description='Permite que o usuário autenticado edite seu próprio nome e email.',
+        request=UsuarioPerfilUpdateSerializer,
         responses={
-            204: OpenApiResponse(description='Conta anonimizada com sucesso.'),
+            200: UsuarioSerializer,
+            400: OpenApiResponse(description='Dados inválidos.'),
+            401: OpenApiResponse(description='Usuário não autenticado.'),
+            502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
+        },
+    )
+    def patch(self, request):
+        serializer = UsuarioPerfilUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            usuario = keycloak_admin.atualizar_usuario(
+                request.user.id, **serializer.validated_data
+            )
+            usuario['realmRoles'] = keycloak_admin.listar_papeis_realm_usuario(request.user.id)
+        except (keycloak_admin.KeycloakAdminException, requests.RequestException) as erro:
+            return _resposta_erro_keycloak(erro)
+
+        return Response(UsuarioSerializer(usuario).data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary='Deleta a própria conta permanentemente (autoatendimento)',
+        description='Remove fisicamente o usuário autenticado do Keycloak e registra um tombstone.',
+        responses={
+            204: OpenApiResponse(description='Conta deletada com sucesso.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),

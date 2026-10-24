@@ -125,6 +125,28 @@ def test_perfil_patch_rejeita_campos_de_negocio(mock_admin):
     assert resposta.status_code == status.HTTP_400_BAD_REQUEST
 
 
+def test_patch_meu_perfil_sucesso_retorna_200(mock_admin):
+    def atualizar(id_usuario, **campos):
+        assert id_usuario == 'id-usuario-comum'
+        assert campos == {'nome': 'Maria Editada'}
+        atualizado = dict(USUARIO_REPRESENTACAO)
+        atualizado['firstName'] = 'Maria Editada'
+        return atualizado
+
+    mock_admin(
+        atualizar_usuario=atualizar,
+        listar_papeis_realm_usuario=lambda id_usuario: [{'name': 'basico'}],
+    )
+
+    cliente = _cliente_com()
+    cliente.force_authenticate(user=KeycloakUser(CLAIMS_USUARIO))
+
+    resposta = cliente.patch(reverse('usuarios'), {'nome': 'Maria Editada'}, format='json')
+
+    assert resposta.status_code == status.HTTP_200_OK
+    assert resposta.json()['nome'] == 'Maria Editada'
+
+
 def test_usuarios_exige_role_admin(mock_admin):
     cliente = _cliente_com()
     cliente.force_authenticate(user=KeycloakUser(CLAIMS_USUARIO))
