@@ -11,6 +11,17 @@ Com o backend em execução:
 
 O Swagger UI permite consultar os endpoints, visualizar parâmetros e executar requisições. O schema OpenAPI pode ser usado por ferramentas de geração de clientes e validação.
 
+As rotas de documentos exigem um access token do Keycloak no cabeçalho:
+
+```http
+Authorization: Bearer <access-token>
+```
+
+Sem token, as rotas retornam `401 Unauthorized`. A listagem, os filtros, a
+consulta por ID e a consulta de etiquetas exigem apenas autenticação válida.
+Upload, edição, exclusão e vínculo de etiquetas exigem que o token contenha o
+nível de acesso `operador`; caso contrário, a API retorna `403 Forbidden`.
+
 Para gerar e validar o schema localmente:
 
 ```bash
@@ -26,6 +37,8 @@ A documentação deve ficar próxima da implementação da rota, no viewset corr
 
 - `django/api/views/documento_api.py`
 - `django/api/views/etiqueta_api.py`
+- `django/api/views/usuarios_api.py`
+- `django/api/views/perfil_api.py`
 
 Use `@extend_schema` quando a rota tiver parâmetros, payload, respostas ou comportamento que não possa ser inferido com segurança.
 
@@ -148,7 +161,62 @@ Para uma rota que recebe arquivo, declare `multipart/form-data` e use um seriali
 
 O serializer deve definir o nome, o tipo e a obrigatoriedade do arquivo. A documentação não deve afirmar que o arquivo é opcional se a view rejeita requisições sem ele.
 
-## 8. Convenções do projeto
+No upload de documentos, `nome` e `nivel` são obrigatórios. O arquivo (`data`) deve ser PDF ou DOCX válido; `tipo_arquivo` é inferido pela extensão, mas, se enviado, deve corresponder ao arquivo. `setor` pode ser informado pelo operador ou omitido para classificação automática. Em ambos os casos, o setor final é persistido no documento e também associado como etiqueta. O campo `etiquetas` é opcional e recebe uma lista de strings.
+
+Exemplo de payload valido:
+
+```json
+{
+  "nome": "Política de Segurança.pdf",
+  "nivel": "Restrito",
+  "etiquetas": ["segurança", "interno"],
+  "data": "arquivo.pdf"
+}
+```
+
+O registro expõe `data_criacao`, preenchida uma única vez, e `data_atualizacao`, atualizada a cada salvamento.
+
+## 8. Anonimização de usuários (LGPD)
+
+As rotas de exclusão anonimizam o usuário no Keycloak — substituem nome, e-mail e username por valores genéricos, desabilitam a conta e removem credenciais, roles e grupos — e registram um **tombstone anonimizado** (SHA-256 do id) em um banco independente. O registro nasce pendente e só é confirmado depois que o Keycloak conclui a anonimização; apenas confirmados impedem que os dados pessoais reapareçam após a restauração de um backup. O fluxo completo de backup/restauração está em [backup-restore.md](backup-restore.md).
+
+| Rota | Método | Quem pode | Respostas |
+|---|---|---|---|
+| `/api/usuarios/` | DELETE | qualquer usuário autenticado | `204`, `401`, `404`, `502` |
+| `/api/usuarios/{id_usuario}/` | DELETE | realm role `operador` ou `admin` | `204`, `401`, `403`, `404`, `502` |
+
+- A barra final é opcional nas duas rotas (`/api/usuarios` também funciona).
+- `404` indica que o usuário não existe no Keycloak; o tombstone não é criado.
+- `403` na rota por id indica que o token não possui a role `operador` nem a role `admin`.
+- `502` indica falha de comunicação com o Keycloak. Se a falha ocorrer depois do tombstone, ele fica **pendente** e não conta como anonimização concluída; o usuário pode tentar novamente.
+- O e-mail de comprovação da exclusão é enviado ao endereço cadastrado. Em desenvolvimento o backend de e-mail padrão é o console; em produção configure `EMAIL_BACKEND`/`EMAIL_HOST` (ver `deploy/.env.example`).
+
+Declare no Swagger os status realmente retornados:
+
+```python
+@extend_schema(
+    operation_id='usuarios_delete_detail',
+    summary='Anonimiza um usuário do Keycloak (admin/operador)',
+    description=(
+        'Anonimiza o usuário, registra um tombstone pendente, o confirma após '
+        'a anonimização e envia e-mail de comprovação. '
+        'Acesso restrito às roles admin ou operador.'
+    ),
+    responses={
+        204: OpenApiResponse(description='Usuário anonimizado com sucesso.'),
+        401: OpenApiResponse(description='Usuário não autenticado.'),
+        403: OpenApiResponse(description='Usuário sem as roles admin e operador.'),
+        404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
+        502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
+    },
+)
+def delete(self, request, id_usuario):
+    ...
+```
+
+> Use `operation_id` explícito nas duas rotas de deleção: sem ele, o `drf-spectacular` gera o mesmo id de operação para ambas e o schema emite aviso de colisão.
+
+## 9. Convenções do projeto
 
 - Mantenha as rotas sob o prefixo `/api/`.
 - Use nomes em português consistentes com os recursos existentes.

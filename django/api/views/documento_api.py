@@ -4,14 +4,24 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+)
 
 from api.models import Documento
 from api.models import Etiqueta
-from api.serializers import DocumentoSerializer
+from api.serializers import DocumentoSerializer, DocumentoUpdateSerializer
 from api.serializers import EtiquetaSerializer
 from api.services.ml_service import MLService
 from api.services.vector_service import VectorService
+from api.services.authorization_service import verificar_acesso
+from api.permissions import IsOperador
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
@@ -25,37 +35,82 @@ class DocumentoViewSet(ModelViewSet):
     serializer_class = DocumentoSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    permission_classes = [IsAuthenticated]
 
     lookup_field = "id_documento"
 
+    def get_permissions(self):
+        permissions = [IsAuthenticated]
+        if self.action in {
+            'create',
+            'update',
+            'partial_update',
+            'destroy',
+            'vincular_etiqueta',
+        }:
+            permissions.append(IsOperador)
+        return [permission() for permission in permissions]
+
     @extend_schema(
-        request=DocumentoSerializer,
-        description="Cria um documento. O campo data deve ser enviado como arquivo.",
+        request={'multipart/form-data': DocumentoSerializer},
+        description=(
+            "Cria um documento com nome e nível obrigatórios. Envie um arquivo PDF ou DOCX "
+            "no campo data. O setor e a etiqueta são definidos automaticamente pela "
+            "classificação do documento."
+        ),
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Atualiza atributos de um documento",
+        description=(
+            "Atualiza parcialmente os atributos do documento. Cada campo enviado "
+            "substitui seu valor atual; ao enviar etiquetas, informe a lista "
+            "completa de IDs que devem permanecer vinculados. O arquivo (data) "
+            "e data_atualizacao não podem ser editados."
+        ),
+        request=DocumentoUpdateSerializer,
+        responses={
+            204: OpenApiResponse(description="Documento atualizado com sucesso."),
+            400: OpenApiResponse(description="Dados inválidos ou campo protegido."),
+            404: OpenApiResponse(description="Documento não encontrado."),
+        },
+    )
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = DocumentoUpdateSerializer(
+            instance,
+            data=request.data,
+            partial=True,
+            context=self.get_serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ========================================================
     # Executado automaticamente no POST /api/documentos/
     # ========================================================
     def perform_create(self, serializer):
         try:
-            # O transaction.atomic garante que, se qualquer coisa falhar aqui dentro,
-            # NADA será salvo no banco de dados (faz o rollback automático do serializer.save())
             with transaction.atomic():
-                # 1. Salva o documento no banco de dados e grava o arquivo físico em disco
                 documento = serializer.save()
+                caminho_arquivo = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
 
-                # 2. Executa a IA (o próprio MLService já trata exceções e garante o retorno de NAO_CLASSIFICADO)
-                caminho_pdf = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
-                tag_predita = MLService.classificar_documento(caminho_pdf)
+                setor = (
+                    MLService.classificar_documento(caminho_arquivo) or 'NAO_CLASSIFICADO'
+                ).strip() or 'NAO_CLASSIFICADO'
 
-                # 3. Obtém ou cria a etiqueta e vincula ao documento
-                etiqueta, _ = Etiqueta.objects.get_or_create(nome=tag_predita)
+                # Setor e etiqueta são definidos exclusivamente pela classificação.
+                # Valores enviados no upload não devem sobrescrever a categoria detectada.
+                documento.setor = setor
+                documento.save(update_fields=['setor'])
+
+                etiqueta, _ = Etiqueta.objects.get_or_create(nome=setor)
                 documento.etiquetas.add(etiqueta)
 
-                # 4. Processa no VectorService (Se falhar aqui, o banco desfaz o passo 1 e 3)
-                VectorService.processar_documento(documento, caminho_pdf)
+                VectorService.processar_documento(documento, caminho_arquivo)
 
         except Exception as e:
             # Atenção: O banco de dados já fez o rollback neste ponto.
@@ -67,31 +122,117 @@ class DocumentoViewSet(ModelViewSet):
             )
 
     # ========================================================
-    # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&contexto={contexto}&page={numero da pagina}
-    # Busca por nome, etiquetas ou contexto
+    # GET /api/documentos/{id_documento}/
+    # Exibição com autorização (retorna 403 se não tiver permissão)
     # ========================================================
     @extend_schema(
+        description=(
+            "Retorna os detalhes de um documento. "
+            "Retorna 401 caso o usuário não esteja autenticado. "
+            "Retorna 403 caso o usuário não tenha permissão de acesso. "
+            "A autorização segue a regra: "
+            "(Setor Usuário == Setor Doc E Nível Usuário >= Nível Doc) OU Nível Usuário == Operador. "
+            "Caso o usuário não tenha setor/nível definidos, aplica-se o mock padrão (Tecnico / Basico)."
+        ),
+        responses={
+            200: OpenApiResponse(description="Documento retornado com sucesso."),
+            401: OpenApiResponse(description="Usuário não autenticado."),
+            404: OpenApiResponse(description="Documento não encontrado."),
+        },
+    )
+    def retrieve(self, request, *args, **kwargs):
+        documento = self.get_object()
+
+        setor_usuario = getattr(request.user, 'setor', None)
+        nivel_usuario = getattr(request.user, 'nivel', None)
+
+        acesso_permitido = verificar_acesso(
+            setor_usuario, nivel_usuario, documento.setor, documento.nivel
+        )
+
+        serializer = self.get_serializer(documento)
+        dados = serializer.data
+        if not acesso_permitido:
+            dados.pop('data', None)
+
+        return Response(dados, status=status.HTTP_200_OK)
+
+    # ========================================================
+    # GET /api/documentos/?nome={nome}&etiquetas={etiquetas}&data_atualizacao={data_atualizacao}&setor={setor}&contexto={contexto}&page={numero da pagina}
+    # Busca combinada utilizando lógica AND para metadados e filtragem de contexto final
+    # ========================================================
+    @extend_schema(
+        summary="Lista documentos com filtros combinados",
+        description=(
+            "Retorna documentos paginados. Os filtros de nome, etiquetas, "
+            "data_atualizacao e setor são combinados com lógica AND. "
+            "Múltiplas etiquetas são separadas por espaço e múltiplos setores "
+            "por vírgula. O filtro contexto executa busca semântica somente "
+            "sobre os documentos aprovados pelos filtros anteriores. "
+            "A filtragem NÃO é afetada pelas permissões do usuário. "
+            "Cada documento inclui o campo 'acesso_permitido' (boolean) para o frontend "
+            "saber se o usuário tem acesso àquele documento. "
+            "Requer autenticação: retorna 401 caso o usuário não envie autenticação válida."
+        ),
         parameters=[
             OpenApiParameter(
                 name="nome",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Filtra documentos pelo nome, sem diferenciar maiúsculas e minúsculas.",
+                description="Filtra documentos pelo nome (aplicado em conjunto com outros filtros), sem diferenciar maiúsculas e minúsculas.",
                 required=False,
             ),
             OpenApiParameter(
                 name="etiquetas",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Filtra documentos pelas etiquetas (separadas por espaço).",
+                description="Filtra documentos por TODAS as etiquetas informadas (lógica AND), separadas por espaço. Atua com AND em relação aos demais filtros.",
                 required=False,
+                examples=[
+                    OpenApiExample(
+                        "Duas etiquetas",
+                        value="importante urgente",
+                    )
+                ],
+            ),
+            OpenApiParameter(
+                name="data_atualizacao",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                description="Filtra por data de atualização mínima (YYYY-MM-DD). Retorna documentos atualizados nesta data ou em datas posteriores.",
+                required=False,
+                examples=[
+                    OpenApiExample(
+                        "Data mínima",
+                        value="2026-01-31",
+                    )
+                ],
+            ),
+            OpenApiParameter(
+                name="setor",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filtra documentos pelo(s) setor(es) (ex: Técnico, Normativo, Judiciário e Qualitativo). Pode receber múltiplos setores separados por vírgula.",
+                required=False,
+                examples=[
+                    OpenApiExample(
+                        "Dois setores",
+                        value="Técnico, Judiciário",
+                    )
+                ],
             ),
             OpenApiParameter(
                 name="contexto",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Busca documentos pelo contexto semântico.",
+                description="Busca documentos pelo contexto semântico. A busca agirá APENAS sobre os documentos que já passaram pelos filtros anteriores.",
                 required=False,
+                examples=[
+                    OpenApiExample(
+                        "Consulta semântica",
+                        value="política de segurança da informação",
+                    )
+                ],
             ),
             OpenApiParameter(
                 name="page",
@@ -103,17 +244,42 @@ class DocumentoViewSet(ModelViewSet):
             ),
         ],
         responses={
-            200: OpenApiResponse(description="Lista paginada de documentos."),
+            200: OpenApiResponse(description="Lista paginada de documentos com o campo 'acesso_permitido'."),
             400: OpenApiResponse(description="Número de página inválido."),
+            401: OpenApiResponse(description="Usuário não autenticado."),
             404: OpenApiResponse(description="Página solicitada inexistente."),
         },
     )
     def list(self, request, *args, **kwargs):
+        nome = request.query_params.get("nome")
+        etiquetas = request.query_params.get("etiquetas")
+        data_atualizacao = request.query_params.get("data_atualizacao")
+        setor = request.query_params.get("setor")
         contexto = request.query_params.get("contexto")
+
+        queryset = self.get_queryset()
+
+        if nome:
+            queryset = queryset.filter(nome__icontains=nome)
+
+        if etiquetas:
+            palavras_etiquetas = etiquetas.split()
+            for palavra in palavras_etiquetas:
+                queryset = queryset.filter(etiquetas__nome__icontains=palavra)
+
+        if data_atualizacao:
+            queryset = queryset.filter(data_atualizacao__gte=data_atualizacao)
+
+        if setor:
+            setores = [s.strip() for s in setor.split(',')]
+            q_setores = Q()
+            for s in setores:
+                q_setores |= Q(setor__icontains=s)
+            queryset = queryset.filter(q_setores)
+
         ids_documentos_contexto = None
         if contexto:
             contexto = contexto.strip()
-
             if contexto:
                 chunks = VectorService.buscar_contexto(
                     contexto.lower(),
@@ -123,25 +289,9 @@ class DocumentoViewSet(ModelViewSet):
                     dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
                 )
 
-        nome = request.query_params.get("nome")
-        etiquetas = request.query_params.get("etiquetas")
+                queryset = queryset.filter(id_documento__in=ids_documentos_contexto)
 
-        queryset = self.get_queryset()
-        search_query = Q()
-
-        if ids_documentos_contexto:
-            search_query |= Q(id_documento__in=ids_documentos_contexto)
-
-        if nome:
-            search_query |= Q(nome__icontains=nome)
-
-        if etiquetas:
-            palavras_etiquetas = etiquetas.split()
-            for palavra in palavras_etiquetas:
-                search_query |= Q(etiquetas__nome__icontains=palavra)
-
-        if search_query:
-            queryset = queryset.filter(search_query).distinct()
+        queryset = queryset.distinct()
 
         if ids_documentos_contexto:
             ordem_contexto = Case(
@@ -163,6 +313,7 @@ class DocumentoViewSet(ModelViewSet):
                 {"erro": "page deve ser um número inteiro positivo."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         if page_number < 1:
             return Response(
                 {"erro": "page deve ser um número inteiro positivo."},
@@ -172,6 +323,7 @@ class DocumentoViewSet(ModelViewSet):
         paginator = PageNumberPagination()
         paginator.page_size = 10
         paginator.page_query_param = "page"
+
         try:
             page = paginator.paginate_queryset(queryset, request, view=self)
         except EmptyPage:
@@ -180,8 +332,9 @@ class DocumentoViewSet(ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = DocumentoSerializer(page, many=True)
+        serializer = DocumentoSerializer(page, many=True, context={'request': request})
         results = serializer.data
+
         for documento in results:
             documento.pop("data", None)
 
