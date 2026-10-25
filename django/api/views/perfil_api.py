@@ -92,6 +92,9 @@ class PerfilView(APIView):
             usuario = keycloak_admin.atualizar_usuario(
                 request.user.id, **serializer.validated_data
             )
+            usuario['realmRoles'] = keycloak_admin.listar_papeis_realm_usuario(
+                request.user.id
+            )
         except (keycloak_admin.KeycloakAdminException, requests.RequestException) as erro:
             return _resposta_erro_keycloak(erro)
 
