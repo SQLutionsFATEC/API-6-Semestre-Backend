@@ -102,6 +102,20 @@ def test_perfil_patch_altera_nome(mock_admin):
         atualizado['firstName'] = 'Maria Antonieta'
         return atualizado
 
+    mock_admin(
+        atualizar_usuario=atualizar,
+        listar_papeis_realm_usuario=lambda id_usuario: [{'name': 'basico'}],
+    )
+
+    cliente = _cliente_com()
+    cliente.force_authenticate(user=KeycloakUser(CLAIMS_USUARIO))
+
+    resposta = cliente.patch(reverse('perfil'), {'nome': 'Maria Antonieta'}, format='json')
+
+    dados = resposta.json()
+    assert resposta.status_code == status.HTTP_200_OK
+    assert dados['nome'] == 'Maria Antonieta'
+
     mock_admin(atualizar_usuario=atualizar)
 
     cliente = _cliente_com()
