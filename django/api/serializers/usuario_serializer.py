@@ -17,11 +17,16 @@ def primeiro_valor(lista, padrao):
 
 def nivel_do_usuario(papeis_realm):
     """Extrai o nivel_acesso (realm role de negócio) de um usuário."""
+    niveis_presentes = set()
     for papel in papeis_realm or []:
         nome = papel.get('name') if isinstance(papel, dict) else papel
         if nome in NIVEIS_ACESSO:
-            return nome
-    return NIVEL_PADRAO
+            niveis_presentes.add(nome)
+
+    if not niveis_presentes:
+        return NIVEL_PADRAO
+
+    return max(niveis_presentes, key=NIVEIS_ACESSO.index)
 
 
 class UsuarioSerializer(serializers.Serializer):
