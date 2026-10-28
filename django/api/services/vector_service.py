@@ -23,9 +23,11 @@ OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'por+eng')
 LLAMA_CPP_HOST = os.getenv('LLAMA_CPP_HOST', 'http://llama-cpp:8080').rstrip('/')
 LLAMA_CPP_EMBEDDING_ENDPOINT = os.getenv(
     'LLAMA_CPP_EMBEDDING_ENDPOINT',
-    '/embedding',
+    '/v1/embeddings',
 ).strip('/')
 LLAMA_CPP_TIMEOUT = float(os.getenv('LLAMA_CPP_TIMEOUT', '120'))
+EMBEDDING_BATCH_SIZE = int(os.getenv('EMBEDDING_BATCH_SIZE', '8'))
+EMBEDDING_DIMENSIONS = 256
 MAX_COSINE_DISTANCE = 0.62
 
 if os.getenv('TESSERACT_CMD'):
@@ -65,7 +67,7 @@ class VectorService:
     def gerar_embedding(
         cls,
         texto: str,
-        dimensao: int = 768,
+        dimensao: int = EMBEDDING_DIMENSIONS,
         prefixo: str = 'search_document',
     ) -> List[float]:
         texto = (texto or '').strip()
@@ -75,7 +77,10 @@ class VectorService:
         try:
             resposta = requests.post(
                 f'{LLAMA_CPP_HOST}/{LLAMA_CPP_EMBEDDING_ENDPOINT}',
-                json={'content': f'{prefixo}: {texto}'},
+                json={
+                    'model': 'nomic-embed-text-v1.5',
+                    'input': [f'{prefixo}: {texto}'],
+                },
                 timeout=LLAMA_CPP_TIMEOUT,
             )
             resposta.raise_for_status()
@@ -90,40 +95,89 @@ class VectorService:
                 'Não foi possível gerar o embedding no llama.cpp.'
             ) from error
 
-        if isinstance(payload, dict):
-            embedding = payload.get('embedding', [])
-            if not embedding and isinstance(payload.get('data'), list):
-                primeiro_item = payload['data'][0] if payload['data'] else {}
-                if isinstance(primeiro_item, dict):
-                    embedding = primeiro_item.get('embedding', [])
-        elif isinstance(payload, list):
-            primeiro_item = payload[0] if payload else {}
-            embedding = (
-                primeiro_item.get('embedding', [])
-                if isinstance(primeiro_item, dict)
-                else payload
-            )
-        else:
-            embedding = []
+        embeddings = cls._extrair_embeddings(payload)
+        if len(embeddings) != 1:
+            raise RuntimeError('Resposta inválida do llama.cpp para um embedding.')
+        return cls._reduzir_embedding(embeddings[0], dimensao)
 
-        if (
-            isinstance(embedding, list)
-            and len(embedding) == 1
-            and isinstance(embedding[0], list)
-        ):
-            embedding = embedding[0]
+    @staticmethod
+    def _extrair_embeddings(payload) -> List[List[float]]:
+        if not isinstance(payload, dict) or not isinstance(payload.get('data'), list):
+            raise RuntimeError('Resposta inválida do llama.cpp para embeddings.')
 
-        if not isinstance(embedding, list) or len(embedding) != dimensao:
+        itens = sorted(
+            payload['data'],
+            key=lambda item: item.get('index', 0) if isinstance(item, dict) else 0,
+        )
+        embeddings = [
+            item.get('embedding', [])
+            for item in itens
+            if isinstance(item, dict)
+        ]
+        normalizados = []
+        for embedding in embeddings:
+            if (
+                isinstance(embedding, list)
+                and len(embedding) == 1
+                and isinstance(embedding[0], list)
+            ):
+                embedding = embedding[0]
+            normalizados.append(embedding)
+        return normalizados
+
+    @staticmethod
+    def _reduzir_embedding(embedding, dimensao: int) -> List[float]:
+        if not isinstance(embedding, list) or len(embedding) < dimensao:
             raise RuntimeError(
-                f'Embedding inválido: esperado {dimensao} dimensões.'
+                f'Embedding inválido: esperado pelo menos {dimensao} dimensões.'
             )
-
         try:
-            return [float(item) for item in embedding]
+            return [float(item) for item in embedding[:dimensao]]
         except (TypeError, ValueError) as error:
             raise RuntimeError(
                 'Embedding inválido: os valores precisam ser numéricos.'
             ) from error
+
+    @classmethod
+    def gerar_embeddings(
+        cls,
+        textos: List[str],
+        dimensao: int = EMBEDDING_DIMENSIONS,
+        prefixo: str = 'search_document',
+    ) -> List[List[float]]:
+        if not textos:
+            return []
+
+        try:
+            resposta = requests.post(
+                f'{LLAMA_CPP_HOST}/{LLAMA_CPP_EMBEDDING_ENDPOINT}',
+                json={
+                    'model': 'nomic-embed-text-v1.5',
+                    'input': [f'{prefixo}: {texto.strip()}' for texto in textos],
+                },
+                timeout=LLAMA_CPP_TIMEOUT,
+            )
+            resposta.raise_for_status()
+            payload = resposta.json()
+        except requests.HTTPError as error:
+            detalhe = error.response.text[:500] if error.response is not None else ''
+            raise RuntimeError(
+                f'Não foi possível gerar os embeddings no llama.cpp: {detalhe}'
+            ) from error
+        except (requests.RequestException, ValueError) as error:
+            raise RuntimeError(
+                'Não foi possível gerar os embeddings no llama.cpp.'
+            ) from error
+
+        embeddings = cls._extrair_embeddings(payload)
+        if len(embeddings) != len(textos):
+            raise RuntimeError(
+                'Resposta do llama.cpp não contém um embedding para cada chunk.'
+            )
+        return [
+            cls._reduzir_embedding(embedding, dimensao)
+            for embedding in embeddings
+        ]
 
     @staticmethod
     def _extrair_markdown_por_pagina(caminho_pdf: str) -> List[Tuple[int, str]]:
@@ -181,7 +235,7 @@ class VectorService:
         cls,
         documento,
         caminho_pdf: str | None = None,
-        chunk_size: int = 700,
+        chunk_size: int = 512,
         chunk_overlap: int = 100,
         batch_size: int = 50,
     ) -> int:
@@ -202,6 +256,7 @@ class VectorService:
             return 0
 
         chunks_para_salvar: List[DocumentoChunk] = []
+        chunks_pendentes: List[Tuple[int, str]] = []
         total_salvo = 0
         nome_arquivo = Path(caminho).name
         splitter = MarkdownTextSplitter(
@@ -227,20 +282,45 @@ class VectorService:
                     texto_chunk = texto_chunk.replace('\x00', '')
                     if not texto_chunk:
                         continue
+                    chunks_pendentes.append((numero_pagina, texto_chunk))
+
+                    if len(chunks_pendentes) >= EMBEDDING_BATCH_SIZE:
+                        embeddings = cls.gerar_embeddings(
+                            [texto for _, texto in chunks_pendentes],
+                        )
+                        for (pagina, texto), embedding in zip(
+                            chunks_pendentes,
+                            embeddings,
+                        ):
+                            chunks_para_salvar.append(
+                                DocumentoChunk(
+                                    id_documento=documento,
+                                    pagina=pagina,
+                                    conteudo=texto,
+                                    embedding=embedding,
+                                )
+                            )
+                        chunks_pendentes.clear()
+
+                        if len(chunks_para_salvar) >= batch_size:
+                            with transaction.atomic():
+                                DocumentoChunk.objects.bulk_create(chunks_para_salvar)
+                            total_salvo += len(chunks_para_salvar)
+                            chunks_para_salvar.clear()
+
+            if chunks_pendentes:
+                embeddings = cls.gerar_embeddings(
+                    [texto for _, texto in chunks_pendentes],
+                )
+                for (pagina, texto), embedding in zip(chunks_pendentes, embeddings):
                     chunks_para_salvar.append(
                         DocumentoChunk(
                             id_documento=documento,
-                            pagina=numero_pagina,
-                            conteudo=texto_chunk,
-                            embedding=cls.gerar_embedding(texto_chunk),
+                            pagina=pagina,
+                            conteudo=texto,
+                            embedding=embedding,
                         )
                     )
-
-                    if len(chunks_para_salvar) >= batch_size:
-                        with transaction.atomic():
-                            DocumentoChunk.objects.bulk_create(chunks_para_salvar)
-                        total_salvo += len(chunks_para_salvar)
-                        chunks_para_salvar.clear()
 
             if chunks_para_salvar:
                 with transaction.atomic():

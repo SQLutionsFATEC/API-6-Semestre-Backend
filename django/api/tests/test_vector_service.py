@@ -21,7 +21,7 @@ class VectorServiceTest(TestCase):
     def test_gerar_embedding_retorna_zeros_para_texto_vazio(self):
         embedding = VectorService.gerar_embedding('  ')
 
-        self.assertEqual(len(embedding), 768)
+        self.assertEqual(len(embedding), 256)
         self.assertEqual(set(embedding), {0.0})
 
     def test_gerar_embedding_converte_resposta_do_llama_cpp(self):
@@ -29,10 +29,12 @@ class VectorServiceTest(TestCase):
             'api.services.vector_service.requests.post',
         ) as requisicao:
             resposta = requisicao.return_value
-            resposta.json.return_value = {'embedding': [0.25] * 768}
+            resposta.json.return_value = {
+                'data': [{'index': 0, 'embedding': [0.25] * 768}],
+            }
             embedding = VectorService.gerar_embedding('texto')
 
-        self.assertEqual(embedding, [0.25] * 768)
+        self.assertEqual(embedding, [0.25] * 256)
 
     def test_gerar_embedding_aceita_resposta_openai_compativel(self):
         with patch(
@@ -40,29 +42,31 @@ class VectorServiceTest(TestCase):
         ) as requisicao:
             resposta = requisicao.return_value
             resposta.json.return_value = {
-                'data': [{'embedding': [0.25] * 768}],
+                'data': [{'index': 0, 'embedding': [0.25] * 768}],
             }
             embedding = VectorService.gerar_embedding('texto')
 
-        self.assertEqual(embedding, [0.25] * 768)
+        self.assertEqual(embedding, [0.25] * 256)
 
     def test_gerar_embedding_aceita_resposta_nativa_do_llama_cpp(self):
         with patch(
             'api.services.vector_service.requests.post',
         ) as requisicao:
-            requisicao.return_value.json.return_value = [
-                {'index': 0, 'embedding': [[0.25] * 768]},
-            ]
+            requisicao.return_value.json.return_value = {
+                'data': [{'index': 0, 'embedding': [[0.25] * 768]}],
+            }
             embedding = VectorService.gerar_embedding('texto')
 
-        self.assertEqual(embedding, [0.25] * 768)
+        self.assertEqual(embedding, [0.25] * 256)
 
     def test_gerar_embedding_rejeita_dimensao_invalida(self):
         with patch(
             'api.services.vector_service.requests.post',
         ) as requisicao:
-            requisicao.return_value.json.return_value = {'embedding': [0.25]}
-            with self.assertRaisesRegex(RuntimeError, '768 dimensões'):
+            requisicao.return_value.json.return_value = {
+                'data': [{'index': 0, 'embedding': [0.25]}],
+            }
+            with self.assertRaisesRegex(RuntimeError, '256 dimensões'):
                 VectorService.gerar_embedding('texto')
 
     def test_extrair_markdown_retorna_texto_e_numero_da_pagina(self):
@@ -143,7 +147,7 @@ class VectorServiceTest(TestCase):
             ), patch.object(
                 VectorService,
                 'gerar_embedding',
-                return_value=[0.1] * 768,
+                return_value=[0.1] * 256,
             ):
                 total = VectorService.processar_documento(
                     self.documento,
@@ -160,7 +164,7 @@ class VectorServiceTest(TestCase):
             id_documento=self.documento,
             pagina=1,
             conteudo='chunk antigo',
-            embedding=[0.1] * 768,
+            embedding=[0.1] * 256,
         )
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
             with patch.object(
@@ -169,7 +173,7 @@ class VectorServiceTest(TestCase):
                 return_value=[(1, 'Conteudo')],
             ), patch.object(
                 VectorService,
-                'gerar_embedding',
+                'gerar_embeddings',
                 side_effect=RuntimeError('embedding indisponivel'),
             ):
                 with self.assertRaises(RuntimeError):
@@ -191,12 +195,12 @@ class VectorServiceTest(TestCase):
             id_documento=self.documento,
             pagina=1,
             conteudo='conteudo filtravel',
-            embedding=[0.1] * 768,
+            embedding=[0.1] * 256,
         )
         with patch.object(
             VectorService,
-            'gerar_embedding',
-            return_value=[0.1] * 768,
+            'gerar_embeddings',
+            return_value=[[0.1] * 256],
         ):
             contexto = VectorService.buscar_contexto(
                 'pergunta',
@@ -219,25 +223,25 @@ class VectorServiceTest(TestCase):
                 id_documento=self.documento,
                 pagina=1,
                 conteudo='primeiro trecho',
-                embedding=[0.1] * 768,
+                embedding=[0.1] * 256,
             ),
             DocumentoChunk(
                 id_documento=self.documento,
                 pagina=2,
                 conteudo='segundo trecho do mesmo documento',
-                embedding=[0.2] * 768,
+                embedding=[0.2] * 256,
             ),
             DocumentoChunk(
                 id_documento=segundo_documento,
                 pagina=1,
                 conteudo='trecho de outro documento',
-                embedding=[0.3] * 768,
+                embedding=[0.3] * 256,
             ),
         ])
         with patch.object(
             VectorService,
             'gerar_embedding',
-            return_value=[0.1] * 768,
+            return_value=[0.1] * 256,
         ):
             contexto = VectorService.buscar_contexto('pergunta')
 

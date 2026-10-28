@@ -144,12 +144,16 @@ services:
     container_name: llama-cpp
     command:
       - --model
-      - /models/${LLAMA_CPP_MODEL_FILE:-nomic-embed-text-v1.5.Q8_0.gguf}
+      - /models/${LLAMA_CPP_MODEL_FILE:-nomic-embed-text-v1.5.Q4_K_M.gguf}
       - --embedding
       - --batch-size
       - "${LLAMA_CPP_BATCH_SIZE:-2048}"
       - --ubatch-size
       - "${LLAMA_CPP_UBATCH_SIZE:-2048}"
+      - --threads
+      - "${LLAMA_CPP_THREADS:-8}"
+      - --threads-batch
+      - "${LLAMA_CPP_THREADS_BATCH:-8}"
       - --host
       - 0.0.0.0
       - --port
@@ -170,8 +174,8 @@ services:
     image: alpine:3.20
     container_name: llama-cpp-model-init
     environment:
-      LLAMA_CPP_MODEL_URL: ${LLAMA_CPP_MODEL_URL:-https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf}
-      LLAMA_CPP_MODEL_FILE: ${LLAMA_CPP_MODEL_FILE:-nomic-embed-text-v1.5.Q8_0.gguf}
+      LLAMA_CPP_MODEL_URL: ${LLAMA_CPP_MODEL_URL:-https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf}
+      LLAMA_CPP_MODEL_FILE: ${LLAMA_CPP_MODEL_FILE:-nomic-embed-text-v1.5.Q4_K_M.gguf}
     volumes:
       - llamacppmodels:/models
     command:
