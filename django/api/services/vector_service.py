@@ -15,12 +15,17 @@ from PIL import Image
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownTextSplitter
 import pymupdf4llm
-import ollama
+import requests
 
 
 OCR_MIN_CHARS = 50
 OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'por+eng')
-EMBEDDING_MODEL = os.getenv('OLLAMA_MODEL', 'nomic-embed-text-v2-moe')
+LLAMA_CPP_HOST = os.getenv('LLAMA_CPP_HOST', 'http://llama-cpp:8080').rstrip('/')
+LLAMA_CPP_EMBEDDING_ENDPOINT = os.getenv(
+    'LLAMA_CPP_EMBEDDING_ENDPOINT',
+    '/embedding',
+).strip('/')
+LLAMA_CPP_TIMEOUT = float(os.getenv('LLAMA_CPP_TIMEOUT', '120'))
 MAX_COSINE_DISTANCE = 0.62
 
 if os.getenv('TESSERACT_CMD'):
@@ -68,25 +73,57 @@ class VectorService:
             return [0.0 for _ in range(dimensao)]
 
         try:
-            resposta = ollama.embeddings(
-                model=EMBEDDING_MODEL,
-                prompt=f'{prefixo}: {texto}',
+            resposta = requests.post(
+                f'{LLAMA_CPP_HOST}/{LLAMA_CPP_EMBEDDING_ENDPOINT}',
+                json={'content': f'{prefixo}: {texto}'},
+                timeout=LLAMA_CPP_TIMEOUT,
             )
-            if hasattr(resposta, 'embedding'):
-                embedding = resposta.embedding
-            elif isinstance(resposta, dict):
-                embedding = resposta.get('embedding', [])
-            else:
-                embedding = []
-        except Exception as error:
-            raise RuntimeError('Não foi possível gerar o embedding no Ollama.') from error
+            resposta.raise_for_status()
+            payload = resposta.json()
+        except requests.HTTPError as error:
+            detalhe = error.response.text[:500] if error.response is not None else ''
+            raise RuntimeError(
+                f'Não foi possível gerar o embedding no llama.cpp: {detalhe}'
+            ) from error
+        except (requests.RequestException, ValueError) as error:
+            raise RuntimeError(
+                'Não foi possível gerar o embedding no llama.cpp.'
+            ) from error
+
+        if isinstance(payload, dict):
+            embedding = payload.get('embedding', [])
+            if not embedding and isinstance(payload.get('data'), list):
+                primeiro_item = payload['data'][0] if payload['data'] else {}
+                if isinstance(primeiro_item, dict):
+                    embedding = primeiro_item.get('embedding', [])
+        elif isinstance(payload, list):
+            primeiro_item = payload[0] if payload else {}
+            embedding = (
+                primeiro_item.get('embedding', [])
+                if isinstance(primeiro_item, dict)
+                else payload
+            )
+        else:
+            embedding = []
+
+        if (
+            isinstance(embedding, list)
+            and len(embedding) == 1
+            and isinstance(embedding[0], list)
+        ):
+            embedding = embedding[0]
 
         if not isinstance(embedding, list) or len(embedding) != dimensao:
             raise RuntimeError(
                 f'Embedding inválido: esperado {dimensao} dimensões.'
             )
 
-        return [float(item) for item in embedding]
+        try:
+            return [float(item) for item in embedding]
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(
+                'Embedding inválido: os valores precisam ser numéricos.'
+            ) from error
 
     @staticmethod
     def _extrair_markdown_por_pagina(caminho_pdf: str) -> List[Tuple[int, str]]:

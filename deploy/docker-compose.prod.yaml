@@ -19,9 +19,61 @@ services:
       - DB_PASSWORD=${POSTGRES_PASSWORD}
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
+      - LLAMA_CPP_HOST=${LLAMA_CPP_HOST:-http://llama-cpp:8080}
+      - LLAMA_CPP_TIMEOUT=${LLAMA_CPP_TIMEOUT:-120}
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
+    depends_on:
+      llama-cpp:
+        condition: service_healthy
+
+  # -------------------- llama.cpp embeddings --------------------
+  llama-cpp:
+    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server}
+    container_name: llama-cpp-prod
+    restart: always
+    command:
+      - --model
+      - /models/${LLAMA_CPP_MODEL_FILE:-nomic-embed-text-v1.5.Q8_0.gguf}
+      - --embedding
+      - --batch-size
+      - "${LLAMA_CPP_BATCH_SIZE:-2048}"
+      - --ubatch-size
+      - "${LLAMA_CPP_UBATCH_SIZE:-2048}"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+    volumes:
+      - llamacppmodels:/models:ro
+    depends_on:
+      llama-cpp-model:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  llama-cpp-model:
+    image: alpine:3.20
+    container_name: llama-cpp-model-init-prod
+    environment:
+      LLAMA_CPP_MODEL_URL: ${LLAMA_CPP_MODEL_URL:-https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf}
+      LLAMA_CPP_MODEL_FILE: ${LLAMA_CPP_MODEL_FILE:-nomic-embed-text-v1.5.Q8_0.gguf}
+    volumes:
+      - llamacppmodels:/models
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        if [ ! -s "/models/$${LLAMA_CPP_MODEL_FILE}" ]; then
+        wget -O "/models/$${LLAMA_CPP_MODEL_FILE}.tmp" "$${LLAMA_CPP_MODEL_URL}" &&
+        mv "/models/$${LLAMA_CPP_MODEL_FILE}.tmp" "/models/$${LLAMA_CPP_MODEL_FILE}";
+        fi
+    restart: "no"
 
   # -------------------- Proxy Reverso (Nginx) --------------------
   nginx:
@@ -84,3 +136,4 @@ volumes:
   media_volume:
   prometheusdata:
   grafanadata:
+  llamacppmodels:

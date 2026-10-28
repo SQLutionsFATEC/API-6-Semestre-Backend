@@ -24,20 +24,44 @@ class VectorServiceTest(TestCase):
         self.assertEqual(len(embedding), 768)
         self.assertEqual(set(embedding), {0.0})
 
-    def test_gerar_embedding_converte_resposta_do_ollama(self):
+    def test_gerar_embedding_converte_resposta_do_llama_cpp(self):
         with patch(
-            'api.services.vector_service.ollama.embeddings',
-            return_value={'embedding': [0.25] * 768},
-        ):
+            'api.services.vector_service.requests.post',
+        ) as requisicao:
+            resposta = requisicao.return_value
+            resposta.json.return_value = {'embedding': [0.25] * 768}
+            embedding = VectorService.gerar_embedding('texto')
+
+        self.assertEqual(embedding, [0.25] * 768)
+
+    def test_gerar_embedding_aceita_resposta_openai_compativel(self):
+        with patch(
+            'api.services.vector_service.requests.post',
+        ) as requisicao:
+            resposta = requisicao.return_value
+            resposta.json.return_value = {
+                'data': [{'embedding': [0.25] * 768}],
+            }
+            embedding = VectorService.gerar_embedding('texto')
+
+        self.assertEqual(embedding, [0.25] * 768)
+
+    def test_gerar_embedding_aceita_resposta_nativa_do_llama_cpp(self):
+        with patch(
+            'api.services.vector_service.requests.post',
+        ) as requisicao:
+            requisicao.return_value.json.return_value = [
+                {'index': 0, 'embedding': [[0.25] * 768]},
+            ]
             embedding = VectorService.gerar_embedding('texto')
 
         self.assertEqual(embedding, [0.25] * 768)
 
     def test_gerar_embedding_rejeita_dimensao_invalida(self):
         with patch(
-            'api.services.vector_service.ollama.embeddings',
-            return_value={'embedding': [0.25]},
-        ):
+            'api.services.vector_service.requests.post',
+        ) as requisicao:
+            requisicao.return_value.json.return_value = {'embedding': [0.25]}
             with self.assertRaisesRegex(RuntimeError, '768 dimensões'):
                 VectorService.gerar_embedding('texto')
 

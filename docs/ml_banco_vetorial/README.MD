@@ -12,7 +12,7 @@ Atualmente, lidar com PDFs técnicos complexos (como manuais da FAA ou especific
 
 Para resolver isso, utilizamos:
 * **pymupdf4llm:** Para extrair o texto em formato Markdown, preservando a estrutura vital de tabelas e cabeçalhos.
-* **Embeddings Locais:** Os textos são convertidos em matemática pelo modelo `nomic-embed-text` via **Ollama** e salvos no banco, garantindo que os dados da empresa permaneçam 100% locais e seguros.
+* **Embeddings Locais:** Os textos são convertidos em matemática pelo modelo GGUF `nomic-embed-text-v1.5` via **llama.cpp** e salvos no banco, garantindo que os dados da empresa permaneçam 100% locais e seguros.
 
 ## Estrutura do Banco de Dados
 
@@ -35,7 +35,7 @@ Extração p/ Markdown (pymupdf4llm)
       ↓
 Divisão em Chunks (LangChain)
       ↓
-Embeddings (nomic-embed-text via Ollama)
+Embeddings (nomic-embed-text-v1.5 GGUF via llama.cpp)
       ↓
 Salvo no PostgreSQL (pgvector)
 ```
