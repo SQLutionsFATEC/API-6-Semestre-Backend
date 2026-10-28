@@ -20,7 +20,12 @@ services:
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
       - LLAMA_CPP_HOST=${LLAMA_CPP_HOST:-http://llama-cpp:8080}
+      - LLAMA_CPP_EMBEDDING_ENDPOINT=${LLAMA_CPP_EMBEDDING_ENDPOINT:-v1/embeddings}
       - LLAMA_CPP_TIMEOUT=${LLAMA_CPP_TIMEOUT:-120}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-8}
+      - EMBEDDING_BATCH_MAX_CHARS=${EMBEDDING_BATCH_MAX_CHARS:-6000}
+      - OCR_MIN_CHARS=${OCR_MIN_CHARS:-50}
+      - OCR_DPI=${OCR_DPI:-150}
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media

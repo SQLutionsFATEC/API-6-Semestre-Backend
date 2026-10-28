@@ -18,7 +18,8 @@ import pymupdf4llm
 import requests
 
 
-OCR_MIN_CHARS = 50
+OCR_MIN_CHARS = int(os.getenv('OCR_MIN_CHARS', '50'))
+OCR_DPI = int(os.getenv('OCR_DPI', '150'))
 OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'por+eng')
 LLAMA_CPP_HOST = os.getenv('LLAMA_CPP_HOST', 'http://llama-cpp:8080').rstrip('/')
 LLAMA_CPP_EMBEDDING_ENDPOINT = os.getenv(
@@ -27,8 +28,12 @@ LLAMA_CPP_EMBEDDING_ENDPOINT = os.getenv(
 ).strip('/')
 LLAMA_CPP_TIMEOUT = float(os.getenv('LLAMA_CPP_TIMEOUT', '120'))
 EMBEDDING_BATCH_SIZE = int(os.getenv('EMBEDDING_BATCH_SIZE', '8'))
+EMBEDDING_BATCH_MAX_CHARS = int(
+    os.getenv('EMBEDDING_BATCH_MAX_CHARS', '6000')
+)
 EMBEDDING_DIMENSIONS = 256
 MAX_COSINE_DISTANCE = 0.62
+HTTP_SESSION = requests.Session()
 
 if os.getenv('TESSERACT_CMD'):
     pytesseract.pytesseract.tesseract_cmd = os.getenv('TESSERACT_CMD')
@@ -75,7 +80,7 @@ class VectorService:
             return [0.0 for _ in range(dimensao)]
 
         try:
-            resposta = requests.post(
+            resposta = HTTP_SESSION.post(
                 f'{LLAMA_CPP_HOST}/{LLAMA_CPP_EMBEDDING_ENDPOINT}',
                 json={
                     'model': 'nomic-embed-text-v1.5',
@@ -149,7 +154,7 @@ class VectorService:
             return []
 
         try:
-            resposta = requests.post(
+            resposta = HTTP_SESSION.post(
                 f'{LLAMA_CPP_HOST}/{LLAMA_CPP_EMBEDDING_ENDPOINT}',
                 json={
                     'model': 'nomic-embed-text-v1.5',
@@ -199,7 +204,10 @@ class VectorService:
                         if len(texto_direto) >= OCR_MIN_CHARS:
                             texto = texto_direto
                         else:
-                            texto_ocr = VectorService._extrair_texto_ocr(pagina).strip()
+                            texto_ocr = VectorService._extrair_texto_ocr(
+                                pagina,
+                                dpi=OCR_DPI,
+                            ).strip()
                             if texto_ocr:
                                 texto = (
                                     VectorService._remover_marca_everyspec(texto_ocr)
@@ -235,8 +243,8 @@ class VectorService:
         cls,
         documento,
         caminho_pdf: str | None = None,
-        chunk_size: int = 512,
-        chunk_overlap: int = 100,
+        chunk_size: int = 700,
+        chunk_overlap: int = 50,
         batch_size: int = 50,
     ) -> int:
         if documento is None:
@@ -284,7 +292,13 @@ class VectorService:
                         continue
                     chunks_pendentes.append((numero_pagina, texto_chunk))
 
-                    if len(chunks_pendentes) >= EMBEDDING_BATCH_SIZE:
+                    tamanho_lote = sum(
+                        len(texto) for _, texto in chunks_pendentes
+                    )
+                    if (
+                        len(chunks_pendentes) >= EMBEDDING_BATCH_SIZE
+                        or tamanho_lote >= EMBEDDING_BATCH_MAX_CHARS
+                    ):
                         embeddings = cls.gerar_embeddings(
                             [texto for _, texto in chunks_pendentes],
                         )

@@ -26,7 +26,7 @@ class VectorServiceTest(TestCase):
 
     def test_gerar_embedding_converte_resposta_do_llama_cpp(self):
         with patch(
-            'api.services.vector_service.requests.post',
+            'api.services.vector_service.HTTP_SESSION.post',
         ) as requisicao:
             resposta = requisicao.return_value
             resposta.json.return_value = {
@@ -38,7 +38,7 @@ class VectorServiceTest(TestCase):
 
     def test_gerar_embedding_aceita_resposta_openai_compativel(self):
         with patch(
-            'api.services.vector_service.requests.post',
+            'api.services.vector_service.HTTP_SESSION.post',
         ) as requisicao:
             resposta = requisicao.return_value
             resposta.json.return_value = {
@@ -50,7 +50,7 @@ class VectorServiceTest(TestCase):
 
     def test_gerar_embedding_aceita_resposta_nativa_do_llama_cpp(self):
         with patch(
-            'api.services.vector_service.requests.post',
+            'api.services.vector_service.HTTP_SESSION.post',
         ) as requisicao:
             requisicao.return_value.json.return_value = {
                 'data': [{'index': 0, 'embedding': [[0.25] * 768]}],
@@ -61,7 +61,7 @@ class VectorServiceTest(TestCase):
 
     def test_gerar_embedding_rejeita_dimensao_invalida(self):
         with patch(
-            'api.services.vector_service.requests.post',
+            'api.services.vector_service.HTTP_SESSION.post',
         ) as requisicao:
             requisicao.return_value.json.return_value = {
                 'data': [{'index': 0, 'embedding': [0.25]}],
