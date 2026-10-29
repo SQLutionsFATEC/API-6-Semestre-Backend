@@ -265,6 +265,7 @@ class VectorService:
 
         chunks_para_salvar: List[DocumentoChunk] = []
         chunks_pendentes: List[Tuple[int, str]] = []
+        tamanho_lote_pendente = 0
         total_salvo = 0
         nome_arquivo = Path(caminho).name
         splitter = MarkdownTextSplitter(
@@ -291,13 +292,11 @@ class VectorService:
                     if not texto_chunk:
                         continue
                     chunks_pendentes.append((numero_pagina, texto_chunk))
+                    tamanho_lote_pendente += len(texto_chunk)
 
-                    tamanho_lote = sum(
-                        len(texto) for _, texto in chunks_pendentes
-                    )
                     if (
                         len(chunks_pendentes) >= EMBEDDING_BATCH_SIZE
-                        or tamanho_lote >= EMBEDDING_BATCH_MAX_CHARS
+                        or tamanho_lote_pendente >= EMBEDDING_BATCH_MAX_CHARS
                     ):
                         embeddings = cls.gerar_embeddings(
                             [texto for _, texto in chunks_pendentes],
@@ -315,6 +314,7 @@ class VectorService:
                                 )
                             )
                         chunks_pendentes.clear()
+                        tamanho_lote_pendente = 0
 
                         if len(chunks_para_salvar) >= batch_size:
                             with transaction.atomic():
