@@ -13,13 +13,19 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copia e instala as dependências puramente no venv
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y pkg-config default-libmysqlclient-dev build-essential \
-    && pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # ==========================================
 # EXECUÇÃO
 # ==========================================
 FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-por \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -29,9 +35,6 @@ COPY --from=builder /opt/venv /opt/venv
 # Ativa o venv na imagem final
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Instala a biblioteca de runtime do MySQL
-RUN apt-get update && apt-get install -y default-libmysqlclient-dev && rm -rf /var/lib/apt/lists/*
-
 # Copia o código da sua aplicação
 COPY . .
 
@@ -39,13 +42,15 @@ COPY . .
 # Garante que as pastas existam antes do Nginx tentar acessá-las
 RUN mkdir -p /app/staticfiles /app/media
 
-# Dá permissão de execução ao entrypoint
-RUN chmod +x entrypoint.sh
+# Copia o entrypoint para fora de /app e ajusta CRLF/permissões
+# (evita que o volume montado - ../django:/app sobrescreva com quebras de linha do Windows)
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 8000
 
 # Script de inicialização
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # Executa o projeto 
 CMD ["gunicorn", "api.wsgi:application", "--bind", "0.0.0.0:8000"]

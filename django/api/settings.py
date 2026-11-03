@@ -16,7 +16,15 @@ import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR.parent / '.env')
+load_dotenv(BASE_DIR.parent / 'deploy' / '.env')
+
+ML_MODEL_PATH = Path(
+    os.getenv(
+        'ML_MODEL_PATH',
+        BASE_DIR.parent / 'docs' / 'ml_etiqueta' / 'artifacts' / 'modelo_categorizacao_etiqueta.joblib'
+    )
+)
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -25,7 +33,7 @@ load_dotenv(BASE_DIR.parent / '.env')
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 FAKER_LOCALE = 'pt_BR'
 ALLOWED_HOSTS = [
     host.strip() for host in os.environ.get('ALLOWED_HOSTS', '*').split(',')
@@ -34,21 +42,21 @@ ALLOWED_HOSTS = [
 # Application definition
 
 INSTALLED_APPS = [
-    'django_prometheus',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
     'django_seed',
     'corsheaders',
     'rest_framework',
+    'drf_spectacular',
     'api',
 ]
 
 MIDDLEWARE = [
-    'django_prometheus.middleware.PrometheusBeforeMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django_prometheus.middleware.PrometheusAfterMiddleware',
 ]
 
 ROOT_URLCONF = 'api.urls'
@@ -72,15 +80,40 @@ WSGI_APPLICATION = 'api.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('MYSQL_DATABASE', 'api_db'),
-        'USER': os.environ.get('MYSQL_USER', 'api_user'),
-        'PASSWORD': os.environ.get('MYSQL_PASSWORD'),
-        'HOST': os.environ.get('DB_HOST', 'custom-mysql'),
-        'PORT': os.environ.get('DB_PORT', '3306'),
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', os.environ.get('POSTGRES_DB', 'api_db')),
+        'USER': os.environ.get('DB_USER', os.environ.get('POSTGRES_USER', 'api_user')),
+        'PASSWORD': os.environ.get('DB_PASSWORD', os.environ.get('POSTGRES_PASSWORD')),
+        'HOST': os.environ.get('DB_HOST', 'postgres'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
         'CONN_MAX_AGE': 60,
-    }
+    },
+    # Banco independente usado apenas para registrar (de forma anonimizada)
+    # quais usuários foram deletados. Ele NUNCA é restaurado junto com os
+    # backups da aplicação/Keycloak; por isso usuários deletados continuam
+    # deletados mesmo após a restauração de um backup.
+    'tombstones': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DELETED_USERS_DB_NAME', 'deleted_users_db'),
+        'USER': os.environ.get(
+            'DELETED_USERS_DB_USER',
+            os.environ.get('DB_USER', os.environ.get('POSTGRES_USER', 'api_user')),
+        ),
+        'PASSWORD': os.environ.get(
+            'DELETED_USERS_DB_PASSWORD',
+            os.environ.get('DB_PASSWORD', os.environ.get('POSTGRES_PASSWORD')),
+        ),
+        'HOST': os.environ.get(
+            'DELETED_USERS_DB_HOST', os.environ.get('DB_HOST', 'postgres')
+        ),
+        'PORT': os.environ.get('DELETED_USERS_DB_PORT', '5432'),
+        'CONN_MAX_AGE': 60,
+    },
 }
+
+# O model UsuarioDeletado só existe no banco 'tombstones'; os demais models
+# continuam exclusivamente no banco 'default'.
+DATABASE_ROUTERS = ['api.db_routers.TombstoneRouter']
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -122,3 +155,55 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 CORS_ALLOW_ALL_ORIGINS = True
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Keycloak (autenticação centralizada)
+# O backend usa a URL interna para chamar o Keycloak dentro do Docker mas
+# o emisso do token é a URL pública que o navegador acessa
+KEYCLOAK_URL = os.environ.get('KEYCLOAK_URL', 'http://keycloak:8080').rstrip('/')
+KEYCLOAK_REALM = os.environ.get('KEYCLOAK_REALM', 'sqlutions')
+KEYCLOAK_ISSUER = os.environ.get(
+    'KEYCLOAK_ISSUER',
+    f'http://localhost:8080/realms/{KEYCLOAK_REALM}',
+)
+KEYCLOAK_JWKS_TTL = int(os.environ.get('KEYCLOAK_JWKS_TTL', '300'))
+
+# Client confidencial (service account) usado pela Admin REST API. O token é
+# emitido no próprio realm, com escopo limitado às roles de realm-management do
+# service account — o admin do realm master não é usado em runtime.
+KEYCLOAK_BACKEND_CLIENT_ID = os.environ.get('KEYCLOAK_BACKEND_CLIENT_ID', 'backend')
+KEYCLOAK_BACKEND_CLIENT_SECRET = os.environ.get(
+    'KEYCLOAK_BACKEND_CLIENT_SECRET', 'backend-secret'
+)
+
+# E-mail: usado para enviar a comprovação de exclusão de conta (LGPD).
+# O padrão é o console (desenvolvimento). Em produção, configure SMTP pelas
+# variáveis EMAIL_*.
+EMAIL_BACKEND = os.environ.get(
+    'EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend'
+)
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'false').lower() in ('1', 'true', 'yes')
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL', 'nao-responda@sqlutions.example.com'
+)
+
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'api.authentication.keycloak.KeycloakAuthentication',
+    ],
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'API de Documentos',
+    'DESCRIPTION': 'API para gerenciamento de documentos e etiquetas.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+
+# Configuração de arquivos de mídia (uploads de usuários)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
