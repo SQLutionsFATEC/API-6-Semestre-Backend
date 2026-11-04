@@ -6,6 +6,7 @@ from .usuario_deletado import UsuarioDeletado
 from .clausula import Clausula
 from .termo import Termo
 from .clausula_termo import ClausulaTermo
+from .vazamento import Vazamento
 
 __all__ = [
     'Etiqueta',
@@ -16,4 +17,5 @@ __all__ = [
     'Clausula',
     'Termo',
     'ClausulaTermo',
+    'Vazamento',
 ]
