@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 import re
 import shutil
+from time import perf_counter
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
@@ -14,13 +16,14 @@ import pytesseract
 from PIL import Image
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownTextSplitter
-import pymupdf4llm
 import requests
 
 
-OCR_MIN_CHARS = int(os.getenv('OCR_MIN_CHARS', '50'))
+logger = logging.getLogger(__name__)
+
+OCR_MIN_CHARS = int(os.getenv('OCR_MIN_CHARS', '150'))
 OCR_DPI = int(os.getenv('OCR_DPI', '150'))
-OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'por+eng')
+OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'eng')
 LLAMA_CPP_HOST = os.getenv('LLAMA_CPP_HOST', 'http://llama-cpp:8080').rstrip('/')
 LLAMA_CPP_EMBEDDING_ENDPOINT = os.getenv(
     'LLAMA_CPP_EMBEDDING_ENDPOINT',
@@ -153,6 +156,7 @@ class VectorService:
         if not textos:
             return []
 
+        inicio = perf_counter()
         try:
             resposta = HTTP_SESSION.post(
                 f'{LLAMA_CPP_HOST}/{LLAMA_CPP_EMBEDDING_ENDPOINT}',
@@ -179,46 +183,51 @@ class VectorService:
             raise RuntimeError(
                 'Resposta do llama.cpp não contém um embedding para cada chunk.'
             )
-        return [
+        resultado = [
             cls._reduzir_embedding(embedding, dimensao)
             for embedding in embeddings
         ]
+        logger.info(
+            'vector etapa=embeddings quantidade=%d duracao_s=%.3f',
+            len(textos),
+            perf_counter() - inicio,
+        )
+        return resultado
 
     @staticmethod
     def _extrair_markdown_por_pagina(caminho_pdf: str) -> List[Tuple[int, str]]:
+        inicio = perf_counter()
+        paginas_ocr = 0
         try:
-            markdown_pages = pymupdf4llm.to_markdown(
-                caminho_pdf,
-                page_chunks=True,
-                use_ocr=False,
-            )
             paginas: List[Tuple[int, str]] = []
             with pymupdf.open(caminho_pdf) as pdf:
-                for indice_pagina, pagina_markdown in enumerate(markdown_pages):
-                    texto = pagina_markdown.get('text', '')
+                for indice_pagina, pagina in enumerate(pdf):
+                    texto = pagina.get_text('text').strip()
                     if indice_pagina == 0:
                         texto = VectorService._remover_marca_everyspec(texto)
                     if len(texto.strip()) < OCR_MIN_CHARS:
-                        pagina = pdf[indice_pagina]
-                        texto_direto = pagina.get_text('text').strip()
-                        if len(texto_direto) >= OCR_MIN_CHARS:
-                            texto = texto_direto
-                        else:
-                            texto_ocr = VectorService._extrair_texto_ocr(
-                                pagina,
-                                dpi=OCR_DPI,
-                            ).strip()
-                            if texto_ocr:
-                                texto = (
-                                    VectorService._remover_marca_everyspec(texto_ocr)
-                                    if indice_pagina == 0
-                                    else texto_ocr
-                                )
+                        texto_ocr = VectorService._extrair_texto_ocr(
+                            pagina,
+                            dpi=OCR_DPI,
+                        ).strip()
+                        paginas_ocr += 1
+                        if texto_ocr:
+                            texto = (
+                                VectorService._remover_marca_everyspec(texto_ocr)
+                                if indice_pagina == 0
+                                else texto_ocr
+                            )
 
                     if texto and texto.strip():
-                        metadata = pagina_markdown.get('metadata', {})
-                        numero_pagina = metadata.get('page_number', indice_pagina + 1)
-                        paginas.append((numero_pagina, texto))
+                        paginas.append((indice_pagina + 1, texto))
+            logger.info(
+                'vector etapa=extracao caminho=%s paginas=%d paginas_ocr=%d '
+                'duracao_s=%.3f',
+                caminho_pdf,
+                len(paginas),
+                paginas_ocr,
+                perf_counter() - inicio,
+            )
             return paginas
         except Exception as error:
             raise RuntimeError(f'Falha ao extrair o PDF: {caminho_pdf}') from error
@@ -239,6 +248,15 @@ class VectorService:
         return [(1, texto)] if texto else []
 
     @classmethod
+    def extrair_paginas(cls, caminho: str) -> List[Tuple[int, str]]:
+        caminho_path = Path(caminho)
+        if not caminho or not caminho_path.exists():
+            return []
+        if caminho_path.suffix.lower() == '.docx':
+            return cls._extrair_docx_por_pagina(caminho)
+        return cls._extrair_markdown_por_pagina(caminho)
+
+    @classmethod
     def processar_documento(
         cls,
         documento,
@@ -246,6 +264,7 @@ class VectorService:
         chunk_size: int = 700,
         chunk_overlap: int = 50,
         batch_size: int = 50,
+        paginas: List[Tuple[int, str]] | None = None,
     ) -> int:
         if documento is None:
             return 0
@@ -256,10 +275,7 @@ class VectorService:
 
         from api.models import DocumentoChunk
 
-        if Path(caminho).suffix.lower() == '.docx':
-            paginas = cls._extrair_docx_por_pagina(caminho)
-        else:
-            paginas = cls._extrair_markdown_por_pagina(caminho)
+        paginas = paginas if paginas is not None else cls.extrair_paginas(caminho)
         if not paginas:
             return 0
 
@@ -267,6 +283,8 @@ class VectorService:
         chunks_pendentes: List[Tuple[int, str]] = []
         tamanho_lote_pendente = 0
         total_salvo = 0
+        inicio_processamento = perf_counter()
+        duracao_persistencia = 0.0
         nome_arquivo = Path(caminho).name
         splitter = MarkdownTextSplitter(
             chunk_size=chunk_size,
@@ -317,8 +335,12 @@ class VectorService:
                         tamanho_lote_pendente = 0
 
                         if len(chunks_para_salvar) >= batch_size:
+                            inicio_persistencia = perf_counter()
                             with transaction.atomic():
                                 DocumentoChunk.objects.bulk_create(chunks_para_salvar)
+                            duracao_persistencia += (
+                                perf_counter() - inicio_persistencia
+                            )
                             total_salvo += len(chunks_para_salvar)
                             chunks_para_salvar.clear()
 
@@ -337,9 +359,18 @@ class VectorService:
                     )
 
             if chunks_para_salvar:
+                inicio_persistencia = perf_counter()
                 with transaction.atomic():
                     DocumentoChunk.objects.bulk_create(chunks_para_salvar)
+                duracao_persistencia += perf_counter() - inicio_persistencia
                 total_salvo += len(chunks_para_salvar)
+            logger.info(
+                'vector etapa=processamento total_chunks=%d duracao_s=%.3f '
+                'persistencia_s=%.3f',
+                total_salvo,
+                perf_counter() - inicio_processamento,
+                duracao_persistencia,
+            )
         except Exception:
             DocumentoChunk.objects.filter(id_documento=documento).delete()
             raise

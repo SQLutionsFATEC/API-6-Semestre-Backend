@@ -167,7 +167,8 @@ class MLService:
     def classificar_documento(
         cls,
         caminho_pdf: str,
-        limite_confianca: float = 0.3
+        limite_confianca: float = 0.3,
+        texto_extraido: str | None = None,
     ) -> str:
         """
         Classifica o PDF utilizando TF-IDF + modelo treinado (.joblib).
@@ -177,8 +178,10 @@ class MLService:
         if not caminho.exists():
             return "NAO_CLASSIFICADO"
 
-        # 1. Extrai o texto
-        if caminho.suffix.lower() == '.docx':
+        # 1. Usa o texto já extraído quando disponível para evitar OCR duplicado.
+        if texto_extraido is not None:
+            texto = texto_extraido
+        elif caminho.suffix.lower() == '.docx':
             from docx import Document as WordDocument
 
             documento_word = WordDocument(str(caminho))

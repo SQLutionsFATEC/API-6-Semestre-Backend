@@ -97,9 +97,20 @@ class DocumentoViewSet(ModelViewSet):
             with transaction.atomic():
                 documento = serializer.save()
                 caminho_arquivo = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
+                paginas_extraidas = VectorService.extrair_paginas(caminho_arquivo)
+                textos_classificacao = []
+                for _, texto_pagina in paginas_extraidas[:30]:
+                    textos_classificacao.append(texto_pagina)
+                    texto_candidato = '\n'.join(textos_classificacao)
+                    if len(MLService.limpar_texto(texto_candidato)) >= 10000:
+                        break
+                texto_extraido = '\n'.join(textos_classificacao)
 
                 setor = (
-                    MLService.classificar_documento(caminho_arquivo) or 'NAO_CLASSIFICADO'
+                    MLService.classificar_documento(
+                        caminho_arquivo,
+                        texto_extraido=texto_extraido,
+                    ) or 'NAO_CLASSIFICADO'
                 ).strip() or 'NAO_CLASSIFICADO'
 
                 # Setor e etiqueta são definidos exclusivamente pela classificação.
@@ -110,7 +121,11 @@ class DocumentoViewSet(ModelViewSet):
                 etiqueta, _ = Etiqueta.objects.get_or_create(nome=setor)
                 documento.etiquetas.add(etiqueta)
 
-                VectorService.processar_documento(documento, caminho_arquivo)
+                VectorService.processar_documento(
+                    documento,
+                    caminho_arquivo,
+                    paginas=paginas_extraidas,
+                )
 
         except Exception as e:
             # Atenção: O banco de dados já fez o rollback neste ponto.
