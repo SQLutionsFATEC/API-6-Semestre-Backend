@@ -25,6 +25,7 @@ from api.views.documento_api import DocumentoViewSet
 from api.views.etiqueta_api import EtiquetaViewSet
 from api.views.perfil_api import PerfilView
 from api.views.usuarios_api import UsuarioDetalheView, UsuariosView
+from api.views.vazamento_api import VazamentoView
 
 router = DefaultRouter()
 router.register(r'documentos', DocumentoViewSet, basename='documento')
@@ -34,7 +35,7 @@ urlpatterns = [
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/perfil/', PerfilView.as_view(), name='perfil'),
-    # Barra final opcional: atende tanto /api/usuarios/ quanto /api/usuarios.
+    path('api/vazamentos/', VazamentoView.as_view(), name='vazamentos'),
     re_path(r'^api/usuarios/?$', UsuariosView.as_view(), name='usuarios'),
     re_path(
         r'^api/usuarios/(?P<id_usuario>[^/]+)/?$',
