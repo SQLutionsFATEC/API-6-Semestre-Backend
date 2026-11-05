@@ -5,7 +5,7 @@ services:
     container_name: keycloak
     command: [ "start-dev", "--import-realm" ]
     environment:
-      # Perfil admin:admin com acesso ao Dashboard (http://localhost:8080)
+      # Perfil admin:admin com acesso ao Dashboard (http://localhost:8080)      
       - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
       - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}
       - KC_DB=postgres
@@ -68,6 +68,8 @@ services:
       - DELETED_USERS_DB_PASSWORD=${POSTGRES_PASSWORD:-senha_padrao}
       - DELETED_USERS_DB_HOST=tombstone-db
       - DELETED_USERS_DB_PORT=5432
+      - RESTORE_SCRIPT_PATH=/app/deploy/scripts/restore.sh
+      - BACKUP_DIR=/app/backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,15 +78,17 @@ services:
     volumes:
       - ../django:/app
       - ../docs:/docs
+      - ../deploy/scripts:/app/deploy/scripts
+      - ./backups:/app/backups
+      - /var/run/docker.sock:/var/run/docker.sock   # <-- MUDANÇA IMPORTANTE
+      - ./docker-compose.yaml:/app/deploy/docker-compose.yaml:ro
 
   # -------------------- Frontend --------------------
   frontend:
     build:
       context: ./frontend
       args:
-        # Usa a variável do .env ou assume 'main' como padrão
         - FRONTEND_BRANCH=${FRONTEND_BRANCH:-main}
-        # Substitua pela URL real do repositório de frontend do 5º semestre
         - REPO_URL=https://github.com/SQLutionsFATEC/API-6-Semestre-Frontend
     container_name: nextjs-app
     command: npm run dev -- --host 0.0.0.0 --port 3000
@@ -117,7 +121,7 @@ services:
 
   # -------------------- Database (tombstones) --------------------
   # Banco independente: guarda apenas hashes dos usuários deletados e NÃO é
-  # restaurado junto com os backups da aplicação/Keycloak.
+  # restaurado junto com os backups da aplicação/Keycloak.    
   tombstone-db:
     image: postgres:16-alpine
     container_name: tombstone-db
