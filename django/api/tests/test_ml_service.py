@@ -2,6 +2,8 @@ import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
+import numpy
 from django.test import TestCase
 from api.services.ml_service import MLService
 import pymupdf
@@ -115,17 +117,21 @@ class MLServiceTest(TestCase):
                     'vectorizer': type(
                         'Vectorizer',
                         (),
-                        {'transform': lambda self, textos: type(
-                            'Tfidf',
-                            (),
-                            {'nnz': 1},
-                        )()},
+                        {
+                            'transform': lambda self, textos: type(
+                                'Tfidf',
+                                (),
+                                {'nnz': 1},
+                            )(),
+                        },
                     )(),
                     'model': type(
                         'Model',
                         (),
                         {
-                            'decision_function': lambda self, matriz: [[1.0]],
+                            'decision_function': lambda self, matriz: numpy.array(
+                                [[1.0]]
+                            ),
                             'classes_': ['normativo'],
                         },
                     )(),
