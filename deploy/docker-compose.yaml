@@ -78,10 +78,9 @@ services:
     volumes:
       - ../django:/app
       - ../docs:/docs
-      - ../deploy/scripts:/app/deploy/scripts
+      - ../deploy:/app/deploy
       - ./backups:/app/backups
-      - /var/run/docker.sock:/var/run/docker.sock   # <-- MUDANÇA IMPORTANTE
-      - ./docker-compose.yaml:/app/deploy/docker-compose.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
   # -------------------- Frontend --------------------
   frontend:
