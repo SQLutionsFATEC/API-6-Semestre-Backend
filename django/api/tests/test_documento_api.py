@@ -72,6 +72,9 @@ class DocumentoAutorizacaoTest(TestCase):
             'api.views.documento_api.MLService.classificar_documento',
             return_value='TI',
         ), patch(
+            'api.views.documento_api.VectorService.extrair_paginas',
+            return_value=[],
+        ), patch(
             'api.views.documento_api.VectorService.processar_documento',
         ):
             arquivo = SimpleUploadedFile(
@@ -585,6 +588,9 @@ class DocumentoApiTest(TestCase):
         with patch(
             'api.views.documento_api.MLService.classificar_documento',
             return_value='TI',
+        ), patch(
+            'api.views.documento_api.VectorService.extrair_paginas',
+            return_value=[],
         ), patch(
             'api.views.documento_api.VectorService.processar_documento',
             side_effect=RuntimeError('falha no processamento'),

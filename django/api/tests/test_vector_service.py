@@ -74,26 +74,15 @@ class VectorServiceTest(TestCase):
 
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
             documento = pymupdf.open()
-            documento.new_page()
+            pagina = documento.new_page()
+            pagina.insert_text((72, 72), 'Texto extraido diretamente do PDF.')
             documento.save(arquivo.name)
             documento.close()
-            with patch(
-                'api.services.vector_service.pymupdf4llm.to_markdown',
-                return_value=[
-                    {
-                        'text': (
-                            'Texto longo o suficiente para não acionar o OCR '
-                            'durante o teste.'
-                        ),
-                        'metadata': {'page_number': 3},
-                    }
-                ],
-            ):
-                paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
+            paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
 
         self.assertEqual(
             paginas,
-            [(3, 'Texto longo o suficiente para não acionar o OCR durante o teste.')],
+            [(1, 'Texto extraido diretamente do PDF.')],
         )
 
     def test_extrair_markdown_usa_ocr_para_pagina_sem_texto(self):
@@ -104,10 +93,7 @@ class VectorServiceTest(TestCase):
             documento.new_page()
             documento.save(arquivo.name)
             documento.close()
-            with patch(
-                'api.services.vector_service.pymupdf4llm.to_markdown',
-                return_value=[{'text': '', 'metadata': {}}],
-            ), patch.object(
+            with patch.object(
                 VectorService,
                 '_extrair_texto_ocr',
                 return_value='Texto obtido por OCR',
@@ -126,13 +112,7 @@ class VectorServiceTest(TestCase):
             pagina.insert_text((72, 72), texto_direto)
             documento.save(arquivo.name)
             documento.close()
-            with patch(
-                'api.services.vector_service.pymupdf4llm.to_markdown',
-                return_value=[{'text': 'curto', 'metadata': {}}],
-            ), patch.object(
-                VectorService,
-                '_extrair_texto_ocr',
-            ) as extrair_ocr:
+            with patch.object(VectorService, '_extrair_texto_ocr') as extrair_ocr:
                 paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
 
         extrair_ocr.assert_not_called()
@@ -146,8 +126,8 @@ class VectorServiceTest(TestCase):
                 return_value=[(2, 'Conteudo da pagina')],
             ), patch.object(
                 VectorService,
-                'gerar_embedding',
-                return_value=[0.1] * 256,
+                'gerar_embeddings',
+                return_value=[[0.1] * 256],
             ):
                 total = VectorService.processar_documento(
                     self.documento,
@@ -199,8 +179,8 @@ class VectorServiceTest(TestCase):
         )
         with patch.object(
             VectorService,
-            'gerar_embeddings',
-            return_value=[[0.1] * 256],
+            'gerar_embedding',
+            return_value=[0.1] * 256,
         ):
             contexto = VectorService.buscar_contexto(
                 'pergunta',
