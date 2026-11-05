@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.test import TestCase
+import requests
 
 from api.models import Documento, DocumentoChunk
 from api.services.vector_service import VectorService
@@ -68,6 +69,41 @@ class VectorServiceTest(TestCase):
             }
             with self.assertRaisesRegex(RuntimeError, '256 dimensões'):
                 VectorService.gerar_embedding('texto')
+
+    def test_gerar_embeddings_retorna_um_embedding_por_texto(self):
+        with patch(
+            'api.services.vector_service.HTTP_SESSION.post',
+        ) as requisicao:
+            resposta = requisicao.return_value
+            resposta.json.return_value = {
+                'data': [
+                    {'index': 1, 'embedding': [0.2] * 768},
+                    {'index': 0, 'embedding': [0.1] * 768},
+                ],
+            }
+
+            embeddings = VectorService.gerar_embeddings(['primeiro', 'segundo'])
+
+        self.assertEqual(embeddings, [[0.1] * 256, [0.2] * 256])
+
+    def test_gerar_embeddings_rejeita_quantidade_incorreta(self):
+        with patch(
+            'api.services.vector_service.HTTP_SESSION.post',
+        ) as requisicao:
+            requisicao.return_value.json.return_value = {
+                'data': [{'index': 0, 'embedding': [0.1] * 768}],
+            }
+
+            with self.assertRaisesRegex(RuntimeError, 'um embedding para cada chunk'):
+                VectorService.gerar_embeddings(['primeiro', 'segundo'])
+
+    def test_gerar_embeddings_converte_falha_http(self):
+        with patch(
+            'api.services.vector_service.HTTP_SESSION.post',
+            side_effect=requests.RequestException('llama indisponivel'),
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'gerar os embeddings'):
+                VectorService.gerar_embeddings(['texto'])
 
     def test_extrair_markdown_retorna_texto_e_numero_da_pagina(self):
         import pymupdf
@@ -157,6 +193,30 @@ class VectorServiceTest(TestCase):
                 )
 
         self.assertEqual(total, 0)
+
+    def test_processar_documento_persiste_lotes_intermediarios(self):
+        paginas = [(1, 'Texto da pagina ' * 1000)]
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            with patch.object(
+                VectorService,
+                '_extrair_markdown_por_pagina',
+                return_value=paginas,
+            ), patch.object(
+                VectorService,
+                'gerar_embeddings',
+                side_effect=lambda textos: [[0.1] * 256 for _ in textos],
+            ):
+                total = VectorService.processar_documento(
+                    self.documento,
+                    caminho_pdf=arquivo.name,
+                    batch_size=1,
+                )
+
+        self.assertGreater(total, 1)
+        self.assertEqual(
+            DocumentoChunk.objects.filter(id_documento=self.documento).count(),
+            total,
+        )
 
     def test_processar_documento_salva_chunks_extraidos(self):
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
