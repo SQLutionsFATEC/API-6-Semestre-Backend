@@ -118,6 +118,46 @@ class VectorServiceTest(TestCase):
         extrair_ocr.assert_not_called()
         self.assertEqual(paginas, [(1, texto_direto)])
 
+    def test_extrair_paginas_retorna_vazio_para_arquivo_inexistente(self):
+        self.assertEqual(
+            VectorService.extrair_paginas('arquivo-inexistente.pdf'),
+            [],
+        )
+
+    def test_extrair_markdown_retorna_erro_para_pdf_invalido(self):
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            arquivo.write(b'nao e um pdf')
+            arquivo.flush()
+            with self.assertRaisesRegex(RuntimeError, 'Falha ao extrair o PDF'):
+                VectorService._extrair_markdown_por_pagina(arquivo.name)
+
+    def test_extrair_docx_retorna_texto_e_registra_pagina(self):
+        from docx import Document as WordDocument
+
+        with tempfile.NamedTemporaryFile(suffix='.docx') as arquivo:
+            documento_word = WordDocument()
+            documento_word.add_paragraph('Texto do documento Word')
+            documento_word.save(arquivo.name)
+            paginas = VectorService._extrair_docx_por_pagina(arquivo.name)
+
+        self.assertEqual(paginas, [(1, 'Texto do documento Word')])
+
+    def test_processar_documento_retorna_zero_sem_documento_ou_paginas(self):
+        self.assertEqual(VectorService.processar_documento(None), 0)
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            with patch.object(
+                VectorService,
+                '_extrair_markdown_por_pagina',
+                return_value=[],
+            ):
+                total = VectorService.processar_documento(
+                    self.documento,
+                    caminho_pdf=arquivo.name,
+                )
+
+        self.assertEqual(total, 0)
+
     def test_processar_documento_salva_chunks_extraidos(self):
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
             with patch.object(

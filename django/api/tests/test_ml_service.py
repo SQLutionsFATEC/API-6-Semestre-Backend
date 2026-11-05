@@ -1,6 +1,7 @@
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 from django.test import TestCase
 from api.services.ml_service import MLService
 import pymupdf
@@ -105,3 +106,47 @@ class MLServiceTest(TestCase):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    def test_classificar_documento_reutiliza_texto_extraido(self):
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as tmp:
+            with patch.object(
+                MLService,
+                '_carregar_modelo',
+                return_value={
+                    'vectorizer': type(
+                        'Vectorizer',
+                        (),
+                        {'transform': lambda self, textos: type(
+                            'Tfidf',
+                            (),
+                            {'nnz': 1},
+                        )()},
+                    )(),
+                    'model': type(
+                        'Model',
+                        (),
+                        {
+                            'decision_function': lambda self, matriz: [[1.0]],
+                            'classes_': ['normativo'],
+                        },
+                    )(),
+                },
+            ):
+                resultado = MLService.classificar_documento(
+                    tmp.name,
+                    texto_extraido='texto suficiente ' * 20,
+                )
+
+        self.assertEqual(resultado, 'normativo')
+
+    def test_classificar_documento_docx_retorna_nao_classificado_para_texto_curto(self):
+        from docx import Document as WordDocument
+
+        with tempfile.TemporaryDirectory() as diretorio:
+            caminho = Path(diretorio) / 'documento.docx'
+            documento = WordDocument()
+            documento.add_paragraph('Texto curto')
+            documento.save(caminho)
+
+            resultado = MLService.classificar_documento(str(caminho))
+
+        self.assertEqual(resultado, 'NAO_CLASSIFICADO')
