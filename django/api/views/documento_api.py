@@ -28,6 +28,11 @@ from django.core.paginator import EmptyPage
 from django.db import transaction
 from rest_framework import serializers
 from django.db.models import Case, IntegerField, Q, When
+import logging
+from time import perf_counter
+
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentoViewSet(ModelViewSet):
@@ -93,11 +98,28 @@ class DocumentoViewSet(ModelViewSet):
     # Executado automaticamente no POST /api/documentos/
     # ========================================================
     def perform_create(self, serializer):
+        inicio_upload = perf_counter()
+        logger.info(
+            'upload etapa=inicio nome=%s tipo_arquivo=%s',
+            serializer.validated_data.get('nome', ''),
+            serializer.validated_data.get('tipo_arquivo', ''),
+        )
         try:
             with transaction.atomic():
                 documento = serializer.save()
                 caminho_arquivo = documento.data.path if (documento.data and hasattr(documento.data, 'path')) else ""
+                logger.info(
+                    'upload etapa=arquivo_salvo documento_id=%s nome=%s caminho=%s',
+                    documento.id_documento,
+                    documento.nome,
+                    caminho_arquivo,
+                )
                 paginas_extraidas = VectorService.extrair_paginas(caminho_arquivo)
+                logger.info(
+                    'upload etapa=extracao_concluida documento_id=%s paginas=%d',
+                    documento.id_documento,
+                    len(paginas_extraidas),
+                )
                 textos_classificacao = []
                 for _, texto_pagina in paginas_extraidas[:30]:
                     textos_classificacao.append(texto_pagina)
@@ -106,25 +128,62 @@ class DocumentoViewSet(ModelViewSet):
                         break
                 texto_extraido = '\n'.join(textos_classificacao)
 
+                logger.info(
+                    'categorizacao etapa=inicio documento_id=%s paginas_analisadas=%d '
+                    'caracteres_extraidos=%d',
+                    documento.id_documento,
+                    len(textos_classificacao),
+                    len(texto_extraido),
+                )
+                inicio_categorizacao = perf_counter()
                 setor = (
                     MLService.classificar_documento(
                         caminho_arquivo,
                         texto_extraido=texto_extraido,
                     ) or 'NAO_CLASSIFICADO'
                 ).strip() or 'NAO_CLASSIFICADO'
+                logger.info(
+                    'categorizacao etapa=concluida documento_id=%s setor=%s duracao_s=%.3f',
+                    documento.id_documento,
+                    setor,
+                    perf_counter() - inicio_categorizacao,
+                )
 
                 # Setor e etiqueta são definidos exclusivamente pela classificação.
                 # Valores enviados no upload não devem sobrescrever a categoria detectada.
                 documento.setor = setor
                 documento.save(update_fields=['setor'])
+                logger.info(
+                    'categorizacao etapa=setor_salvo documento_id=%s setor=%s',
+                    documento.id_documento,
+                    setor,
+                )
 
                 etiqueta, _ = Etiqueta.objects.get_or_create(nome=setor)
                 documento.etiquetas.add(etiqueta)
+                logger.info(
+                    'categorizacao etapa=etiqueta_vinculada documento_id=%s etiqueta=%s',
+                    documento.id_documento,
+                    etiqueta.nome,
+                )
 
+                logger.info(
+                    'embedding etapa=inicio documento_id=%s paginas=%d',
+                    documento.id_documento,
+                    len(paginas_extraidas),
+                )
+                inicio_embedding = perf_counter()
                 VectorService.processar_documento(
                     documento,
                     caminho_arquivo,
                     paginas=paginas_extraidas,
+                )
+                logger.info(
+                    'embedding etapa=concluido documento_id=%s duracao_s=%.3f '
+                    'duracao_upload_s=%.3f',
+                    documento.id_documento,
+                    perf_counter() - inicio_embedding,
+                    perf_counter() - inicio_upload,
                 )
 
         except Exception as e:
@@ -132,6 +191,12 @@ class DocumentoViewSet(ModelViewSet):
             # Se o arquivo físico no disco não for apagado automaticamente pelos seus models/signals,
             # você pode precisar apagar o arquivo físico aqui usando 'os.remove(caminho_pdf)'
 
+            logger.exception(
+                'upload etapa=falha documento_id=%s duracao_s=%.3f erro=%s',
+                getattr(locals().get('documento'), 'id_documento', None),
+                perf_counter() - inicio_upload,
+                e,
+            )
             raise serializers.ValidationError(
                 {"erro": f"Erro ao processar o upload do documento: {str(e)}"}
             )

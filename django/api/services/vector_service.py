@@ -21,7 +21,6 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-OCR_MIN_CHARS = int(os.getenv('OCR_MIN_CHARS', '150'))
 OCR_DPI = int(os.getenv('OCR_DPI', '150'))
 OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'eng')
 LLAMA_CPP_HOST = os.getenv('LLAMA_CPP_HOST', 'http://llama-cpp:8080').rstrip('/')
@@ -80,8 +79,20 @@ class VectorService:
     ) -> List[float]:
         texto = (texto or '').strip()
         if not texto:
+            logger.info(
+                'embedding etapa=texto_vazio dimensao=%d prefixo=%s',
+                dimensao,
+                prefixo,
+            )
             return [0.0 for _ in range(dimensao)]
 
+        inicio = perf_counter()
+        logger.info(
+            'embedding etapa=solicitacao_inicio caracteres=%d dimensao=%d prefixo=%s',
+            len(texto),
+            dimensao,
+            prefixo,
+        )
         try:
             resposta = HTTP_SESSION.post(
                 f'{LLAMA_CPP_HOST}/{LLAMA_CPP_EMBEDDING_ENDPOINT}',
@@ -106,7 +117,13 @@ class VectorService:
         embeddings = cls._extrair_embeddings(payload)
         if len(embeddings) != 1:
             raise RuntimeError('Resposta inválida do llama.cpp para um embedding.')
-        return cls._reduzir_embedding(embeddings[0], dimensao)
+        resultado = cls._reduzir_embedding(embeddings[0], dimensao)
+        logger.info(
+            'embedding etapa=solicitacao_concluida dimensao=%d duracao_s=%.3f',
+            dimensao,
+            perf_counter() - inicio,
+        )
+        return resultado
 
     @staticmethod
     def _extrair_embeddings(payload) -> List[List[float]]:
@@ -157,6 +174,12 @@ class VectorService:
             return []
 
         inicio = perf_counter()
+        logger.info(
+            'embedding etapa=lote_inicio quantidade=%d caracteres=%d prefixo=%s',
+            len(textos),
+            sum(len(texto) for texto in textos),
+            prefixo,
+        )
         try:
             resposta = HTTP_SESSION.post(
                 f'{LLAMA_CPP_HOST}/{LLAMA_CPP_EMBEDDING_ENDPOINT}',
@@ -188,8 +211,9 @@ class VectorService:
             for embedding in embeddings
         ]
         logger.info(
-            'vector etapa=embeddings quantidade=%d duracao_s=%.3f',
+            'embedding etapa=lote_concluido quantidade=%d dimensao=%d duracao_s=%.3f',
             len(textos),
+            dimensao,
             perf_counter() - inicio,
         )
         return resultado
@@ -205,7 +229,7 @@ class VectorService:
                     texto = pagina.get_text('text').strip()
                     if indice_pagina == 0:
                         texto = VectorService._remover_marca_everyspec(texto)
-                    if len(texto.strip()) < OCR_MIN_CHARS:
+                    if not texto:
                         texto_ocr = VectorService._extrair_texto_ocr(
                             pagina,
                             dpi=OCR_DPI,
@@ -230,6 +254,10 @@ class VectorService:
             )
             return paginas
         except Exception as error:
+            logger.exception(
+                'embedding etapa=extracao_falha caminho=%s',
+                caminho_pdf,
+            )
             raise RuntimeError(f'Falha ao extrair o PDF: {caminho_pdf}') from error
 
     @staticmethod
@@ -245,6 +273,12 @@ class VectorService:
             for celula in linha.cells
         )
         texto = '\n'.join(parte for parte in partes if parte).strip()
+        logger.info(
+            'embedding etapa=extracao_docx_concluida caminho=%s paginas=%d caracteres=%d',
+            caminho_docx,
+            1 if texto else 0,
+            len(texto),
+        )
         return [(1, texto)] if texto else []
 
     @classmethod
@@ -277,6 +311,11 @@ class VectorService:
 
         paginas = paginas if paginas is not None else cls.extrair_paginas(caminho)
         if not paginas:
+            logger.warning(
+                'embedding etapa=sem_paginas documento_id=%s caminho=%s',
+                getattr(documento, 'id_documento', None),
+                caminho,
+            )
             return 0
 
         chunks_para_salvar: List[DocumentoChunk] = []
@@ -303,6 +342,12 @@ class VectorService:
                     )
                 ])
                 chunks = [chunk.page_content for chunk in documentos]
+                logger.info(
+                    'embedding etapa=chunks_criados documento_id=%s pagina=%d quantidade=%d',
+                    documento.id_documento,
+                    numero_pagina,
+                    len(chunks),
+                )
 
                 for chunk in chunks:
                     texto_chunk = f'Documento: {nome_arquivo}.\n{chunk}'.strip()
@@ -316,6 +361,13 @@ class VectorService:
                         len(chunks_pendentes) >= EMBEDDING_BATCH_SIZE
                         or tamanho_lote_pendente >= EMBEDDING_BATCH_MAX_CHARS
                     ):
+                        logger.info(
+                            'embedding etapa=lote_disparado documento_id=%s quantidade=%d '
+                            'caracteres=%d',
+                            documento.id_documento,
+                            len(chunks_pendentes),
+                            tamanho_lote_pendente,
+                        )
                         embeddings = cls.gerar_embeddings(
                             [texto for _, texto in chunks_pendentes],
                         )
@@ -342,9 +394,23 @@ class VectorService:
                                 perf_counter() - inicio_persistencia
                             )
                             total_salvo += len(chunks_para_salvar)
+                            logger.info(
+                                'embedding etapa=chunks_persistidos documento_id=%s '
+                                'quantidade=%d total=%d',
+                                documento.id_documento,
+                                len(chunks_para_salvar),
+                                total_salvo,
+                            )
                             chunks_para_salvar.clear()
 
             if chunks_pendentes:
+                logger.info(
+                    'embedding etapa=lote_final_disparado documento_id=%s quantidade=%d '
+                    'caracteres=%d',
+                    documento.id_documento,
+                    len(chunks_pendentes),
+                    tamanho_lote_pendente,
+                )
                 embeddings = cls.gerar_embeddings(
                     [texto for _, texto in chunks_pendentes],
                 )
@@ -364,14 +430,26 @@ class VectorService:
                     DocumentoChunk.objects.bulk_create(chunks_para_salvar)
                 duracao_persistencia += perf_counter() - inicio_persistencia
                 total_salvo += len(chunks_para_salvar)
+                logger.info(
+                    'embedding etapa=chunks_persistidos documento_id=%s '
+                    'quantidade=%d total=%d',
+                    documento.id_documento,
+                    len(chunks_para_salvar),
+                    total_salvo,
+                )
             logger.info(
-                'vector etapa=processamento total_chunks=%d duracao_s=%.3f '
+                'embedding etapa=processamento_concluido documento_id=%s total_chunks=%d duracao_s=%.3f '
                 'persistencia_s=%.3f',
+                documento.id_documento,
                 total_salvo,
                 perf_counter() - inicio_processamento,
                 duracao_persistencia,
             )
         except Exception:
+            logger.exception(
+                'embedding etapa=falha documento_id=%s',
+                documento.id_documento,
+            )
             DocumentoChunk.objects.filter(id_documento=documento).delete()
             raise
 

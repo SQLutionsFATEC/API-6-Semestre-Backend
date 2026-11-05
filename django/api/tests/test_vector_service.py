@@ -96,7 +96,7 @@ class VectorServiceTest(TestCase):
             [(3, 'Texto longo o suficiente para não acionar o OCR durante o teste.')],
         )
 
-    def test_extrair_markdown_usa_ocr_para_texto_curto(self):
+    def test_extrair_markdown_usa_ocr_para_pagina_sem_texto(self):
         import pymupdf
 
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
@@ -106,7 +106,7 @@ class VectorServiceTest(TestCase):
             documento.close()
             with patch(
                 'api.services.vector_service.pymupdf4llm.to_markdown',
-                return_value=[{'text': 'curto', 'metadata': {}}],
+                return_value=[{'text': '', 'metadata': {}}],
             ), patch.object(
                 VectorService,
                 '_extrair_texto_ocr',
