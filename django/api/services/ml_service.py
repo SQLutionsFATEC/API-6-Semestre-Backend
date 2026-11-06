@@ -1,5 +1,7 @@
 import io
+import logging
 import re
+import shutil
 from pathlib import Path
 import joblib
 import pymupdf
@@ -7,7 +9,8 @@ import pytesseract
 from PIL import Image
 from django.conf import settings
 
-import shutil
+
+logger = logging.getLogger(__name__)
 
 # Configura o caminho do binário tesseract no Windows se não estiver diretamente no PATH
 if not shutil.which("tesseract"):
@@ -53,12 +56,14 @@ class MLService:
         """Carrega o modelo de categorização em memória."""
         if cls._artefato is None:
             caminho_modelo = Path(settings.ML_MODEL_PATH)
+            logger.info('categorizacao etapa=carregamento_modelo caminho=%s', caminho_modelo)
             if not caminho_modelo.exists():
                 raise FileNotFoundError(
                     f"Modelo de ML não encontrado em: {caminho_modelo}"
                 )
 
             cls._artefato = joblib.load(caminho_modelo)
+            logger.info('categorizacao etapa=modelo_carregado caminho=%s', caminho_modelo)
 
         return cls._artefato
 
@@ -117,6 +122,11 @@ class MLService:
         paginas_texto = 0
         paginas_ocr = 0
 
+        logger.info(
+            'categorizacao etapa=extracao_pdf_inicio caminho=%s limite_paginas=%d',
+            caminho,
+            max_paginas,
+        )
         try:
             pdf = pymupdf.open(caminho)
 
@@ -158,16 +168,30 @@ class MLService:
             pdf.close()
 
         except Exception as erro:
+            logger.exception(
+                'categorizacao etapa=extracao_pdf_falha caminho=%s erro=%s',
+                caminho,
+                erro,
+            )
             return ""
 
         texto_final = " ".join(textos).strip()
+        logger.info(
+            'categorizacao etapa=extracao_pdf_concluida caminho=%s paginas_texto=%d '
+            'paginas_ocr=%d caracteres=%d',
+            caminho,
+            paginas_texto,
+            paginas_ocr,
+            len(texto_final),
+        )
         return texto_final
 
     @classmethod
     def classificar_documento(
         cls,
         caminho_pdf: str,
-        limite_confianca: float = 0.3
+        limite_confianca: float = 0.3,
+        texto_extraido: str | None = None,
     ) -> str:
         """
         Classifica o PDF utilizando TF-IDF + modelo treinado (.joblib).
@@ -175,10 +199,21 @@ class MLService:
         """
         caminho = Path(caminho_pdf)
         if not caminho.exists():
+            logger.warning(
+                'categorizacao etapa=arquivo_inexistente caminho=%s',
+                caminho_pdf,
+            )
             return "NAO_CLASSIFICADO"
 
-        # 1. Extrai o texto
-        if caminho.suffix.lower() == '.docx':
+        # 1. Usa o texto já extraído quando disponível para evitar OCR duplicado.
+        if texto_extraido is not None:
+            texto = texto_extraido
+            logger.info(
+                'categorizacao etapa=texto_reutilizado caminho=%s caracteres=%d',
+                caminho.name,
+                len(texto),
+            )
+        elif caminho.suffix.lower() == '.docx':
             from docx import Document as WordDocument
 
             documento_word = WordDocument(str(caminho))
@@ -190,11 +225,26 @@ class MLService:
                 for celula in linha.cells
             )
             texto = '\n'.join(parte for parte in partes if parte)
+            logger.info(
+                'categorizacao etapa=texto_docx_extraido caminho=%s caracteres=%d',
+                caminho.name,
+                len(texto),
+            )
         else:
+            logger.info('categorizacao etapa=extracao_texto caminho=%s', caminho.name)
             texto = cls.extrair_texto_pdf(str(caminho))
+            logger.info(
+                'categorizacao etapa=extracao_texto_concluida caminho=%s caracteres=%d',
+                caminho.name,
+                len(texto),
+            )
 
         # Caso 1: nenhum texto foi extraído
         if len(texto.strip()) == 0:
+            logger.warning(
+                'categorizacao etapa=sem_texto_util caminho=%s',
+                caminho.name,
+            )
             return "NAO_CLASSIFICADO"
 
         # 2. Limpa o texto
@@ -202,6 +252,11 @@ class MLService:
 
         # Caso 2: pouco conteúdo útil após limpeza (< 100 caracteres)
         if len(texto_limpo) < 100:
+            logger.warning(
+                'categorizacao etapa=texto_insuficiente caminho=%s caracteres_limpos=%d',
+                caminho.name,
+                len(texto_limpo),
+            )
             return "NAO_CLASSIFICADO"
 
         # 3. Carrega o modelo
@@ -214,6 +269,10 @@ class MLService:
 
         # Caso 3: nenhum termo reconhecido pelo TF-IDF
         if texto_tfidf.nnz == 0:
+            logger.warning(
+                'categorizacao etapa=sem_termos_reconhecidos caminho=%s',
+                caminho.name,
+            )
             return "NAO_CLASSIFICADO"
 
         # 5. Obtém os scores das classes via decision_function
@@ -224,6 +283,20 @@ class MLService:
 
         # Caso 4: verifica se o maior score atinge o limite mínimo de confiança (0.3)
         if maior_score < limite_confianca:
+            logger.info(
+                'categorizacao etapa=confianca_insuficiente caminho=%s score=%.4f '
+                'limite=%.4f classe=%s',
+                caminho.name,
+                maior_score,
+                limite_confianca,
+                classe_candidata,
+            )
             return "NAO_CLASSIFICADO"
 
+        logger.info(
+            'categorizacao etapa=predicao_concluida caminho=%s classe=%s score=%.4f',
+            caminho.name,
+            classe_candidata,
+            maior_score,
+        )
         return classe_candidata
