@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
 from pathlib import Path
 from typing import Iterable, List, Tuple
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 OCR_DPI = int(os.getenv('OCR_DPI', '150'))
 OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'eng')
+OCR_WORKERS = max(1, int(os.getenv('OCR_WORKERS', '4')))
 LLAMA_CPP_HOST = os.getenv('LLAMA_CPP_HOST', 'http://llama-cpp:8080').rstrip('/')
 LLAMA_CPP_EMBEDDING_ENDPOINT = os.getenv(
     'LLAMA_CPP_EMBEDDING_ENDPOINT',
@@ -69,6 +71,19 @@ class VectorService:
                 'Tesseract não encontrado. Instale-o e coloque-o no PATH ou defina '
                 'a variável TESSERACT_CMD com o caminho de tesseract.exe.'
             ) from error
+
+    @staticmethod
+    def _extrair_ocr_de_pagina(
+        caminho_pdf: str,
+        indice_pagina: int,
+    ) -> str:
+        # Cada worker abre o próprio documento; objetos Page não são compartilhados
+        # entre threads.
+        with pymupdf.open(caminho_pdf) as pdf:
+            return VectorService._extrair_texto_ocr(
+                pdf.load_page(indice_pagina),
+                dpi=OCR_DPI,
+            ).strip()
 
     @classmethod
     def gerar_embedding(
@@ -224,32 +239,60 @@ class VectorService:
         paginas_ocr = 0
         try:
             paginas: List[Tuple[int, str]] = []
+            paginas_para_ocr = []
             with pymupdf.open(caminho_pdf) as pdf:
                 for indice_pagina, pagina in enumerate(pdf):
                     texto = pagina.get_text('text').strip()
                     if indice_pagina == 0:
                         texto = VectorService._remover_marca_everyspec(texto)
                     if not texto:
-                        texto_ocr = VectorService._extrair_texto_ocr(
-                            pagina,
-                            dpi=OCR_DPI,
-                        ).strip()
-                        paginas_ocr += 1
-                        if texto_ocr:
-                            texto = (
-                                VectorService._remover_marca_everyspec(texto_ocr)
-                                if indice_pagina == 0
-                                else texto_ocr
-                            )
+                        paginas_para_ocr.append(indice_pagina)
+                    else:
+                        if texto and texto.strip():
+                            paginas.append((indice_pagina + 1, texto))
 
-                    if texto and texto.strip():
+            if paginas_para_ocr:
+                if OCR_WORKERS == 1 or len(paginas_para_ocr) == 1:
+                    textos_ocr = [
+                        VectorService._extrair_ocr_de_pagina(
+                            caminho_pdf,
+                            indice_pagina,
+                        )
+                        for indice_pagina in paginas_para_ocr
+                    ]
+                else:
+                    with ThreadPoolExecutor(
+                        max_workers=min(OCR_WORKERS, len(paginas_para_ocr)),
+                        thread_name_prefix='ocr',
+                    ) as executor:
+                        textos_ocr = list(
+                            executor.map(
+                                lambda indice_pagina: VectorService._extrair_ocr_de_pagina(
+                                    caminho_pdf,
+                                    indice_pagina,
+                                ),
+                                paginas_para_ocr,
+                            )
+                        )
+
+                paginas_ocr = len(paginas_para_ocr)
+                for indice_pagina, texto_ocr in zip(paginas_para_ocr, textos_ocr):
+                    if texto_ocr:
+                        texto = (
+                            VectorService._remover_marca_everyspec(texto_ocr)
+                            if indice_pagina == 0
+                            else texto_ocr
+                        )
                         paginas.append((indice_pagina + 1, texto))
+
+                paginas.sort(key=lambda pagina: pagina[0])
             logger.info(
                 'vector etapa=extracao caminho=%s paginas=%d paginas_ocr=%d '
-                'duracao_s=%.3f',
+                'ocr_workers=%d duracao_s=%.3f',
                 caminho_pdf,
                 len(paginas),
                 paginas_ocr,
+                min(OCR_WORKERS, paginas_ocr) if paginas_ocr else 0,
                 perf_counter() - inicio,
             )
             return paginas
