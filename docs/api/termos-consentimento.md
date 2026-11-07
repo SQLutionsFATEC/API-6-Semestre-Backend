@@ -145,7 +145,109 @@ novo_termo = atualizar_clausula(
 
 ---
 
-## 5. Backup, restauração e preservação futura do histórico de consentimento
+## 5. Gerenciamento via CLI (`manage.py gerenciar_termos`)
+
+Para facilitar operações manuais, auditorias e rotinas operacionais sem precisar abrir o shell do Django, foi implementado o comando de gerenciamento:
+
+📁 [`django/api/management/commands/gerenciar_termos.py`](../../django/api/management/commands/gerenciar_termos.py)
+
+O comando faz o consumo direto de todas as funções da camada de serviço (`garantir_termo_inicial`, `obter_termo_atual`, `listar_clausulas_atuais`, `criar_clausula`, `criar_clausulas`, `atualizar_clausula`, `remover_clausula` e `remover_clausulas`).
+
+> [!IMPORTANT]
+> Ao executar em ambiente com Docker (padrão do projeto), **navegue até a pasta `deploy/`** antes de executar os comandos:
+> ```bash
+> cd deploy
+> docker compose exec backend python manage.py gerenciar_termos <acao> [opcoes]
+> ```
+> *(Caso execute a partir da raiz do repositório, inclua a flag `-f deploy/docker-compose.yaml`).*
+
+### 5.1. Inicializar termo preliminar (Seed manual / idempotente)
+
+```bash
+cd deploy
+docker compose exec backend python manage.py gerenciar_termos inicializar
+```
+Garante a existência do Termo preliminar (Termo #1 com `coleta_nome` e `coleta_uso_email`) se o banco estiver vazio; caso já exista algum termo, não altera o banco e exibe o estado atual.
+
+### 5.2. Listar o termo em vigor e suas cláusulas
+
+```bash
+cd deploy
+docker compose exec backend python manage.py gerenciar_termos listar
+```
+Exibe o ID do termo atual, data de criação e cada cláusula ativa com seu respectivo `id_clausula`, tipo (`[OBRIGATÓRIA]` ou `[OPCIONAL]`), identificador funcional e descrição (utilizando `listar_clausulas_atuais()`).
+
+### 5.3. Criar cláusulas
+
+**Pela linha de comando (única cláusula via `criar_clausula`):**
+```bash
+cd deploy
+docker compose exec backend python manage.py gerenciar_termos criar --requisito "coleta_telefone" --desc "Coleta de telefone celular para SMS"
+docker compose exec backend python manage.py gerenciar_termos criar --requisito "termos_servico" --desc "Termos de Uso da Plataforma" --obrigatoria
+```
+
+**Em lote via arquivo JSON (via `criar_clausulas`):**
+Você pode preparar um arquivo `.json` (ex: [`exemplos_clausulas.json`](../../django/api/management/commands/exemplos_clausulas.json)) contendo uma ou mais cláusulas:
+
+```json
+[
+  {
+    "requisito": "coleta_telefone",
+    "desc": "Coleta de telefone celular para contato operacional e segurança",
+    "obrigatoria": false
+  },
+  {
+    "requisito": "cookies_analiticos",
+    "desc": "Armazenamento de cookies para fins de métricas de navegação",
+    "obrigatoria": false
+  }
+]
+```
+
+E executá-lo (informando o caminho dentro do container, onde o código da pasta `django/` fica mapeado em `/app`):
+```bash
+cd deploy
+docker compose exec backend python manage.py gerenciar_termos criar --json "api/management/commands/exemplos_clausulas.json"
+```
+
+> [!WARNING]
+> **Atenção aos caminhos de arquivo no Docker:**
+> Como o comando executa dentro do container onde o diretório raiz da aplicação é `/app` (conteúdo de `django/`), **não utilize** caminhos do host como `../django/...`. 
+> Utilize o caminho relativo interno (ex: `api/management/commands/exemplos_clausulas.json`) ou absoluto (`/app/api/management/commands/exemplos_clausulas.json`). Se o arquivo JSON estiver fora da pasta `django/`, coloque-o dentro de `django/` para que o container tenha acesso.
+
+### 5.4. Atualizar cláusula existente (via `atualizar_clausula`)
+
+Atualiza qualquer campo de uma cláusula vigente (gerando um novo Termo e preservando a cláusula anterior intacta no histórico):
+
+```bash
+cd deploy
+# Atualizar a descrição
+docker compose exec backend python manage.py gerenciar_termos atualizar 2 --desc "Coleta e uso do email para relatórios semanais"
+
+# Alterar para obrigatória ou opcional
+docker compose exec backend python manage.py gerenciar_termos atualizar 2 --obrigatoria
+docker compose exec backend python manage.py gerenciar_termos atualizar 2 --opcional
+
+# Atualizar requisito e descrição simultaneamente
+docker compose exec backend python manage.py gerenciar_termos atualizar 2 --requisito "coleta_email_corporativo" --desc "Email corporativo do usuário"
+```
+
+### 5.5. Remover cláusula(s)
+
+Remove uma cláusula (via `remover_clausula`) ou múltiplas em lote (via `remover_clausulas`):
+
+```bash
+cd deploy
+# Remover uma única cláusula
+docker compose exec backend python manage.py gerenciar_termos remover 2
+
+# Remover múltiplas cláusulas em lote (gera apenas 1 novo Termo)
+docker compose exec backend python manage.py gerenciar_termos remover 2 3
+```
+
+---
+
+## 6. Backup, restauração e preservação futura do histórico de consentimento
 
 Conforme documentado em [backup-restore.md](backup-restore.md), a restauração de um dump antigo do banco principal (`app.dump`) via `pg_restore --clean` sobrescreve o estado do banco da aplicação para o instante em que o backup foi tirado.
 
@@ -160,11 +262,15 @@ Para garantir que **nenhuma revogação de consentimento seja perdida em uma res
 
 ---
 
-## 6. Testes automatizados
+## 7. Testes automatizados
 
-Os testes unitários que validam o estado preliminar e todos os cenários de versionamento (criação de 1 e 2 cláusulas, remoção de 1 e 2 cláusulas e atualização de cláusula) estão em:
+Os testes unitários que validam a camada de serviço e o comando CLI de gerenciamento estão em:
 
 ```bash
+# Testes do serviço
 pytest api/tests_unit/test_termo_consentimento_service.py -v
+
+# Testes do comando manage.py gerenciar_termos
+pytest api/tests_unit/test_gerenciar_termos_command.py -v
 ```
 
