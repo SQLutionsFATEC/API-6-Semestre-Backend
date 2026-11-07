@@ -26,4 +26,3 @@ class ClausulaTermo(models.Model):
 
     def __str__(self):
         return f"Termo #{self.id_termo_id} - Cláusula #{self.id_clausula_id}"
-

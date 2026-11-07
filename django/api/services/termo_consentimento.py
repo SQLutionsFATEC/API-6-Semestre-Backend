@@ -251,4 +251,3 @@ class TermoConsentimentoService:
     remover_clausulas = staticmethod(remover_clausulas)
     remover_clausula = staticmethod(remover_clausula)
     atualizar_clausula = staticmethod(atualizar_clausula)
-

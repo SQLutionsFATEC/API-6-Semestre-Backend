@@ -25,4 +25,3 @@ class Termo(models.Model):
 
     def __str__(self):
         return f"Termo #{self.id_termo}"
-
