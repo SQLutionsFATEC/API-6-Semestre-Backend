@@ -141,14 +141,14 @@ class VectorServiceTest(TestCase):
     def test_extrair_markdown_respeita_minimo_de_caracteres_configurado(self):
         import pymupdf
 
-        texto_direto = 'Texto longo suficiente para disparar OCR quando o limite for baixo.'
+        texto_direto = 'Texto com menos de cinquenta caracteres.'
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
             documento = pymupdf.open()
             pagina = documento.new_page()
             pagina.insert_text((72, 72), texto_direto)
             documento.save(arquivo.name)
             documento.close()
-            with patch('api.services.vector_service.OCR_MIN_CHARS', 5), patch.object(
+            with patch('api.services.vector_service.OCR_MIN_CHARS', 50), patch.object(
                 VectorService,
                 '_extrair_texto_ocr',
                 return_value='Texto obtido por OCR',
