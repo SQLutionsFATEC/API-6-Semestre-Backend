@@ -1,26 +1,13 @@
-import io
 import logging
 import re
-import shutil
 from pathlib import Path
 import joblib
 import pymupdf
-import pytesseract
-from PIL import Image
 from django.conf import settings
 
+from api.services.ocr_service import extract_page_text
 
 logger = logging.getLogger(__name__)
-
-# Configura o caminho do binário tesseract no Windows se não estiver diretamente no PATH
-if not shutil.which("tesseract"):
-    for c in [
-        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-        Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe")
-    ]:
-        if c.exists():
-            pytesseract.pytesseract.tesseract_cmd = str(c)
-            break
 
 # Suprime avisos do motor C do MuPDF no console (ex: 'format error: No default Layer config'),
 # que acontecem quando o PyMuPDF tenta ler PDFs escaneados ou com camadas fora do padrão,
@@ -150,15 +137,15 @@ class MLService:
                 else:
                     # 2. Executa OCR com Tesseract
                     try:
-                        pix = pagina.get_pixmap(dpi=dpi_ocr, alpha=False)
-                        imagem = Image.open(io.BytesIO(pix.tobytes("png")))
-                        texto_ocr = pytesseract.image_to_string(imagem, lang="eng")
+                        texto_ocr = extract_page_text(pagina, dpi=dpi_ocr)
                         textos.append(texto_ocr)
                         paginas_ocr += 1
-                    except pytesseract.TesseractNotFoundError:
-                        pass
                     except Exception as e_ocr:
-                        pass
+                        logger.warning(
+                            'categorizacao etapa=ocr_falha pagina=%d erro=%s',
+                            numero_pagina + 1,
+                            e_ocr,
+                        )
 
                 # 3. Verifica se atingiu quantidade suficiente de texto útil
                 texto_atual = cls.limpar_texto(" ".join(textos))

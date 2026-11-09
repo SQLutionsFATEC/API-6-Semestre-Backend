@@ -5,6 +5,13 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libtesseract-dev \
+    libleptonica-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
 # Cria o ambiente virtual na pasta /opt/venv
 RUN python -m venv /opt/venv
 

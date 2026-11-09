@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import io
 import logging
 import os
 import re
-import shutil
 from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
 from pathlib import Path
@@ -13,17 +11,15 @@ from typing import Iterable, List, Tuple
 from django.db import transaction
 
 import pymupdf
-import pytesseract
-from PIL import Image
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownTextSplitter
 import requests
 
+from api.services.ocr_service import extract_page_text
 
 logger = logging.getLogger(__name__)
 
 OCR_DPI = int(os.getenv('OCR_DPI', '150'))
-OCR_LANGUAGE = os.getenv('TESSERACT_LANG', 'eng')
 OCR_WORKERS = max(1, int(os.getenv('OCR_WORKERS', '4')))
 LLAMA_CPP_HOST = os.getenv('LLAMA_CPP_HOST', 'http://llama-cpp:8080').rstrip('/')
 LLAMA_CPP_EMBEDDING_ENDPOINT = os.getenv(
@@ -39,18 +35,6 @@ EMBEDDING_DIMENSIONS = 256
 MAX_COSINE_DISTANCE = 0.62
 HTTP_SESSION = requests.Session()
 
-if os.getenv('TESSERACT_CMD'):
-    pytesseract.pytesseract.tesseract_cmd = os.getenv('TESSERACT_CMD')
-elif not shutil.which('tesseract'):
-    for caminho_tesseract in (
-        Path(r'C:\Program Files\Tesseract-OCR\tesseract.exe'),
-        Path(r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe'),
-    ):
-        if caminho_tesseract.exists():
-            pytesseract.pytesseract.tesseract_cmd = str(caminho_tesseract)
-            break
-
-
 class VectorService:
     """Serviço responsável pela extração de contexto em Markdown, chunking e embeddings."""
 
@@ -63,14 +47,9 @@ class VectorService:
     @staticmethod
     def _extrair_texto_ocr(pagina, dpi: int = 150) -> str:
         try:
-            pix = pagina.get_pixmap(dpi=dpi, alpha=False)
-            imagem = Image.open(io.BytesIO(pix.tobytes('png')))
-            return pytesseract.image_to_string(imagem, lang=OCR_LANGUAGE)
-        except pytesseract.TesseractNotFoundError as error:
-            raise RuntimeError(
-                'Tesseract não encontrado. Instale-o e coloque-o no PATH ou defina '
-                'a variável TESSERACT_CMD com o caminho de tesseract.exe.'
-            ) from error
+            return extract_page_text(pagina, dpi=dpi)
+        except Exception as error:
+            raise RuntimeError('Falha ao executar o OCR com Tesseract.') from error
 
     @staticmethod
     def _extrair_ocr_de_pagina(
