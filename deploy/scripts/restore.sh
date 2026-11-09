@@ -82,7 +82,8 @@ log 'Restaurando banco do Keycloak...'
 
 if [[ -s "$BACKUP_DIR/media.tar.gz" ]]; then
     log 'Restaurando arquivos de mídia...'
-    tar xzf "$BACKUP_DIR/media.tar.gz" -C "$DEPLOY_DIR/../django" --overwrite
+    "${COMPOSE[@]}" run --rm --no-deps -T -v "$BACKUP_DIR/media.tar.gz:/tmp/media.tar.gz" "$BACKEND_SERVICE" \
+        sh -c "tar xzf /tmp/media.tar.gz -C /app --overwrite"
 fi
 
 # Garante que a tabela usuario_deletado exista no banco independente antes de
