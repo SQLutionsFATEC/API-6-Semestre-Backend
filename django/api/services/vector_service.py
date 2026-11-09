@@ -36,6 +36,7 @@ EMBEDDING_DIMENSIONS = 256
 MAX_COSINE_DISTANCE = 0.62
 HTTP_SESSION = requests.Session()
 
+
 class VectorService:
     """Serviço responsável pela extração de contexto em Markdown, chunking e embeddings."""
 
