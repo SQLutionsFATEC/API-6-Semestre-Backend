@@ -226,7 +226,7 @@ class VectorService:
                     texto = pagina.get_text('text').strip()
                     if indice_pagina == 0:
                         texto = VectorService._remover_marca_everyspec(texto)
-                    if len(texto) > OCR_MIN_CHARS:
+                    if len(texto) < OCR_MIN_CHARS:
                         paginas_para_ocr.append(indice_pagina)
                     else:
                         if texto and texto.strip():

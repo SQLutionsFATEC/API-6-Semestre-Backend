@@ -3,12 +3,11 @@ from __future__ import annotations
 import os
 import threading
 
-import pymupdf
-
 os.environ.setdefault('OMP_THREAD_LIMIT', '1')
 os.environ.setdefault('OMP_NUM_THREADS', '1')
 os.environ.setdefault('MKL_NUM_THREADS', '1')
 
+import pymupdf
 from tesserocr import OEM, PSM, PyTessBaseAPI
 
 
