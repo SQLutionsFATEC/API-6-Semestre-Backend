@@ -1,6 +1,5 @@
 import os
-import subprocess
-import glob
+import time
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -13,40 +12,24 @@ from api.services import keycloak_admin
 
 logger = logging.getLogger(__name__)
 
-RESTORE_SCRIPT_PATH = os.environ.get("RESTORE_SCRIPT_PATH", "/app/deploy/scripts/restore.sh")
 BACKUP_BASE_DIR = os.environ.get("BACKUP_BASE_DIR", "/app/backups")
 
+def _sinalizar_restauracao_backup():
+    """
+    Cria um arquivo de sinalização (flag) na pasta de backups.
+    Um script externo (watcher.sh no host) ficará responsável por detectar
+    este arquivo e executar o restore.sh de forma segura.
+    """
+    logger.warning("[BACKUP] Sinalizando necessidade de restauração devido a vazamento...")
 
-def _executar_restauracao_backup():
-    logger.warning("[BACKUP] Iniciando restauração de backups devido a vazamento...")
-
-    if not os.path.exists(BACKUP_BASE_DIR):
-        logger.error(f"[BACKUP] Pasta de backups não existe: {BACKUP_BASE_DIR}")
-        return
-
-    subpastas = sorted(glob.glob(os.path.join(BACKUP_BASE_DIR, "*")), reverse=True)
-    if not subpastas:
-        logger.error(f"[BACKUP] Nenhum backup encontrado em {BACKUP_BASE_DIR}")
-        return
-
-    backup_dir = subpastas[0]
-    logger.info(f"[BACKUP] Usando backup em: {backup_dir}")
-
-    if not os.path.exists(RESTORE_SCRIPT_PATH):
-        logger.error(f"[BACKUP] Script não encontrado: {RESTORE_SCRIPT_PATH}")
-        return
-
-    try:
-        subprocess.run(
-            ["bash", RESTORE_SCRIPT_PATH, backup_dir, "--yes"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        logger.info("[BACKUP] Restauração concluída com sucesso.")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"[BACKUP] Falha na restauração: {e.stderr}")
-        raise Exception("Falha ao executar a restauração de backup.")
+    os.makedirs(BACKUP_BASE_DIR, exist_ok=True)
+    
+    trigger_file = os.path.join(BACKUP_BASE_DIR, "TRIGGER_RESTORE.flag")
+    
+    with open(trigger_file, "w") as f:
+        f.write(f"Vazamento detectado em {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    logger.info(f"[BACKUP] Arquivo de gatilho criado em {trigger_file}. Aguardando restore externo.")
 
 
 class VazamentoView(APIView):
@@ -84,10 +67,11 @@ class VazamentoView(APIView):
         vazamento = Vazamento.objects.create()
     
         try:
-            _executar_restauracao_backup()
-        except Exception:
+            _sinalizar_restauracao_backup()
+        except Exception as e:
+            logger.error(f"[BACKUP] Falha ao criar arquivo de sinalização: {e}")
             return Response(
-                {"detail": "Vazamento registrado, mas falha ao iniciar a restauração de backup."},
+                {"dsetail": "Vazamento registrado, mas falha ao sinalizar a restauração de backup."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
