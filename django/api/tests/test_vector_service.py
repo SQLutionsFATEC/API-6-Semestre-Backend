@@ -138,6 +138,26 @@ class VectorServiceTest(TestCase):
 
         self.assertEqual(paginas, [(1, 'Texto obtido por OCR')])
 
+    def test_extrair_markdown_respeita_minimo_de_caracteres_configurado(self):
+        import pymupdf
+
+        texto_direto = 'Texto longo suficiente para disparar OCR quando o limite for baixo.'
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            documento = pymupdf.open()
+            pagina = documento.new_page()
+            pagina.insert_text((72, 72), texto_direto)
+            documento.save(arquivo.name)
+            documento.close()
+            with patch('api.services.vector_service.OCR_MIN_CHARS', 5), patch.object(
+                VectorService,
+                '_extrair_texto_ocr',
+                return_value='Texto obtido por OCR',
+            ) as extrair_ocr:
+                paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
+
+        self.assertEqual(paginas, [(1, 'Texto obtido por OCR')])
+        extrair_ocr.assert_called_once()
+
     def test_extrair_markdown_nao_usa_ocr_quando_texto_direto_e_suficiente(self):
         import pymupdf
 

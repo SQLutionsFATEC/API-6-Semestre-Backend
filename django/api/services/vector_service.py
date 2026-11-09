@@ -31,6 +31,7 @@ EMBEDDING_BATCH_SIZE = int(os.getenv('EMBEDDING_BATCH_SIZE', '8'))
 EMBEDDING_BATCH_MAX_CHARS = int(
     os.getenv('EMBEDDING_BATCH_MAX_CHARS', '6000')
 )
+OCR_MIN_CHARS = max(50, int(os.getenv('OCR_MIN_CHARS', '50')))
 EMBEDDING_DIMENSIONS = 256
 MAX_COSINE_DISTANCE = 0.62
 HTTP_SESSION = requests.Session()
@@ -224,7 +225,7 @@ class VectorService:
                     texto = pagina.get_text('text').strip()
                     if indice_pagina == 0:
                         texto = VectorService._remover_marca_everyspec(texto)
-                    if not texto:
+                    if len(texto) > OCR_MIN_CHARS:
                         paginas_para_ocr.append(indice_pagina)
                     else:
                         if texto and texto.strip():
