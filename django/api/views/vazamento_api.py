@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 BACKUP_BASE_DIR = os.environ.get("BACKUP_BASE_DIR", "/app/backups")
 
+
 def _sinalizar_restauracao_backup():
     """
     Cria um arquivo de sinalização (flag) na pasta de backups.
