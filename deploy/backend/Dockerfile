@@ -28,11 +28,13 @@ RUN pip install --no-cache-dir --upgrade pip \
 # ==========================================
 FROM python:3.12-slim
 
-# Instala Tesseract e o cliente do Docker (para o restore.sh)
+# Instala Tesseract, as bibliotecas de runtime do tesserocr e o cliente do Docker
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
     tesseract-ocr-por \
+    libtesseract-dev \
+    libleptonica-dev \
     ca-certificates \
     curl \
     gnupg \
