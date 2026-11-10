@@ -11,7 +11,6 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-
 def _load_topic_model():
     legacy_normalize = "sentence_transformers.base.modules.normalize"
     current_normalize = "sentence_transformers.sentence_transformer.modules.normalize"
@@ -20,12 +19,12 @@ def _load_topic_model():
     return joblib.load(settings.TAGGING_MODEL_PATH)
 
 
-t = time.time()
-topic_model = _load_topic_model()
-logger.warning(f"Modelo joblib carregado em: {time.time()-t}")
-t = time.time()
-nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
-logger.warning(f"Modelo nlp carregado em: {time.time()-t}")
+# t = time.time()
+# topic_model = _load_topic_model()
+# logger.warning(f"Modelo joblib carregado em: {time.time()-t}")
+# t = time.time()
+# nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
+# logger.warning(f"Modelo nlp carregado em: {time.time()-t}")
 
 PALAVRAS_LIXO = {
     "everyspec", "downloaded", "www", "com", "https", "http", "from",
@@ -40,7 +39,7 @@ class TaggingService:
     @classmethod
     def get_model(cls):
         if cls._model is None:
-            cls._model = joblib.load(settings.TAGGING_MODEL_PATH)
+            cls._model = _load_topic_model() #joblib.load(settings.TAGGING_MODEL_PATH)
 
     @classmethod
     def get_nlp(cls):
@@ -70,6 +69,10 @@ class TaggingService:
     @classmethod
     def classificar_pdf(cls, texto_limpo):
         t = time.time()
+        if cls._nlp is None:
+            cls.get_nlp()
+        if cls._model is None:
+            cls.get_model()
         substantivos = cls.nlp_texto(texto_limpo)
         etiquetas = []
 
