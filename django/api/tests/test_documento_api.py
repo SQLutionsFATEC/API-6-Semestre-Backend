@@ -72,6 +72,9 @@ class DocumentoAutorizacaoTest(TestCase):
             'api.views.documento_api.MLService.classificar_documento',
             return_value='TI',
         ), patch(
+            'api.views.documento_api.VectorService.extrair_paginas',
+            return_value=[],
+        ), patch(
             'api.views.documento_api.VectorService.processar_documento',
         ):
             arquivo = SimpleUploadedFile(
@@ -586,6 +589,9 @@ class DocumentoApiTest(TestCase):
             'api.views.documento_api.MLService.classificar_documento',
             return_value='TI',
         ), patch(
+            'api.views.documento_api.VectorService.extrair_paginas',
+            return_value=[],
+        ), patch(
             'api.views.documento_api.VectorService.processar_documento',
             side_effect=RuntimeError('falha no processamento'),
         ):
@@ -652,12 +658,12 @@ class DocumentoApiTest(TestCase):
             id_documento=documento,
             pagina=1,
             conteudo='Conteúdo do documento para busca semântica.',
-            embedding=[0.1] * 768,
+            embedding=[0.1] * 256,
         )
 
         self.assertEqual(chunk.id_documento, documento)
         self.assertEqual(chunk.pagina, 1)
-        self.assertEqual(len(chunk.embedding), 768)
+        self.assertEqual(len(chunk.embedding), 256)
 
     def test_processar_documento_sem_arquivo_retorna_zero_chunks(self):
         from api.services.vector_service import VectorService

@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.test import TestCase
+import requests
 
 from api.models import Documento, DocumentoChunk
 from api.services.vector_service import VectorService
@@ -21,54 +22,106 @@ class VectorServiceTest(TestCase):
     def test_gerar_embedding_retorna_zeros_para_texto_vazio(self):
         embedding = VectorService.gerar_embedding('  ')
 
-        self.assertEqual(len(embedding), 768)
+        self.assertEqual(len(embedding), 256)
         self.assertEqual(set(embedding), {0.0})
 
-    def test_gerar_embedding_converte_resposta_do_ollama(self):
+    def test_gerar_embedding_converte_resposta_do_llama_cpp(self):
         with patch(
-            'api.services.vector_service.ollama.embeddings',
-            return_value={'embedding': [0.25] * 768},
-        ):
+            'api.services.vector_service.HTTP_SESSION.post',
+        ) as requisicao:
+            resposta = requisicao.return_value
+            resposta.json.return_value = {
+                'data': [{'index': 0, 'embedding': [0.25] * 768}],
+            }
             embedding = VectorService.gerar_embedding('texto')
 
-        self.assertEqual(embedding, [0.25] * 768)
+        self.assertEqual(embedding, [0.25] * 256)
+
+    def test_gerar_embedding_aceita_resposta_openai_compativel(self):
+        with patch(
+            'api.services.vector_service.HTTP_SESSION.post',
+        ) as requisicao:
+            resposta = requisicao.return_value
+            resposta.json.return_value = {
+                'data': [{'index': 0, 'embedding': [0.25] * 768}],
+            }
+            embedding = VectorService.gerar_embedding('texto')
+
+        self.assertEqual(embedding, [0.25] * 256)
+
+    def test_gerar_embedding_aceita_resposta_nativa_do_llama_cpp(self):
+        with patch(
+            'api.services.vector_service.HTTP_SESSION.post',
+        ) as requisicao:
+            requisicao.return_value.json.return_value = {
+                'data': [{'index': 0, 'embedding': [[0.25] * 768]}],
+            }
+            embedding = VectorService.gerar_embedding('texto')
+
+        self.assertEqual(embedding, [0.25] * 256)
 
     def test_gerar_embedding_rejeita_dimensao_invalida(self):
         with patch(
-            'api.services.vector_service.ollama.embeddings',
-            return_value={'embedding': [0.25]},
-        ):
-            with self.assertRaisesRegex(RuntimeError, '768 dimensões'):
+            'api.services.vector_service.HTTP_SESSION.post',
+        ) as requisicao:
+            requisicao.return_value.json.return_value = {
+                'data': [{'index': 0, 'embedding': [0.25]}],
+            }
+            with self.assertRaisesRegex(RuntimeError, '256 dimensões'):
                 VectorService.gerar_embedding('texto')
+
+    def test_gerar_embeddings_retorna_um_embedding_por_texto(self):
+        with patch(
+            'api.services.vector_service.HTTP_SESSION.post',
+        ) as requisicao:
+            resposta = requisicao.return_value
+            resposta.json.return_value = {
+                'data': [
+                    {'index': 1, 'embedding': [0.2] * 768},
+                    {'index': 0, 'embedding': [0.1] * 768},
+                ],
+            }
+
+            embeddings = VectorService.gerar_embeddings(['primeiro', 'segundo'])
+
+        self.assertEqual(embeddings, [[0.1] * 256, [0.2] * 256])
+
+    def test_gerar_embeddings_rejeita_quantidade_incorreta(self):
+        with patch(
+            'api.services.vector_service.HTTP_SESSION.post',
+        ) as requisicao:
+            requisicao.return_value.json.return_value = {
+                'data': [{'index': 0, 'embedding': [0.1] * 768}],
+            }
+
+            with self.assertRaisesRegex(RuntimeError, 'um embedding para cada chunk'):
+                VectorService.gerar_embeddings(['primeiro', 'segundo'])
+
+    def test_gerar_embeddings_converte_falha_http(self):
+        with patch(
+            'api.services.vector_service.HTTP_SESSION.post',
+            side_effect=requests.RequestException('llama indisponivel'),
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'gerar os embeddings'):
+                VectorService.gerar_embeddings(['texto'])
 
     def test_extrair_markdown_retorna_texto_e_numero_da_pagina(self):
         import pymupdf
 
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
             documento = pymupdf.open()
-            documento.new_page()
+            pagina = documento.new_page()
+            pagina.insert_text((72, 72), 'Texto extraido diretamente do PDF.')
             documento.save(arquivo.name)
             documento.close()
-            with patch(
-                'api.services.vector_service.pymupdf4llm.to_markdown',
-                return_value=[
-                    {
-                        'text': (
-                            'Texto longo o suficiente para não acionar o OCR '
-                            'durante o teste.'
-                        ),
-                        'metadata': {'page_number': 3},
-                    }
-                ],
-            ):
-                paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
+            paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
 
         self.assertEqual(
             paginas,
-            [(3, 'Texto longo o suficiente para não acionar o OCR durante o teste.')],
+            [(1, 'Texto extraido diretamente do PDF.')],
         )
 
-    def test_extrair_markdown_usa_ocr_para_texto_curto(self):
+    def test_extrair_markdown_usa_ocr_para_pagina_sem_texto(self):
         import pymupdf
 
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
@@ -76,10 +129,7 @@ class VectorServiceTest(TestCase):
             documento.new_page()
             documento.save(arquivo.name)
             documento.close()
-            with patch(
-                'api.services.vector_service.pymupdf4llm.to_markdown',
-                return_value=[{'text': 'curto', 'metadata': {}}],
-            ), patch.object(
+            with patch.object(
                 VectorService,
                 '_extrair_texto_ocr',
                 return_value='Texto obtido por OCR',
@@ -87,6 +137,26 @@ class VectorServiceTest(TestCase):
                 paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
 
         self.assertEqual(paginas, [(1, 'Texto obtido por OCR')])
+
+    def test_extrair_markdown_respeita_minimo_de_caracteres_configurado(self):
+        import pymupdf
+
+        texto_direto = 'Texto com menos de cinquenta caracteres.'
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            documento = pymupdf.open()
+            pagina = documento.new_page()
+            pagina.insert_text((72, 72), texto_direto)
+            documento.save(arquivo.name)
+            documento.close()
+            with patch('api.services.vector_service.OCR_MIN_CHARS', 50), patch.object(
+                VectorService,
+                '_extrair_texto_ocr',
+                return_value='Texto obtido por OCR',
+            ) as extrair_ocr:
+                paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
+
+        self.assertEqual(paginas, [(1, 'Texto obtido por OCR')])
+        extrair_ocr.assert_called_once()
 
     def test_extrair_markdown_nao_usa_ocr_quando_texto_direto_e_suficiente(self):
         import pymupdf
@@ -98,17 +168,75 @@ class VectorServiceTest(TestCase):
             pagina.insert_text((72, 72), texto_direto)
             documento.save(arquivo.name)
             documento.close()
-            with patch(
-                'api.services.vector_service.pymupdf4llm.to_markdown',
-                return_value=[{'text': 'curto', 'metadata': {}}],
-            ), patch.object(
-                VectorService,
-                '_extrair_texto_ocr',
-            ) as extrair_ocr:
+            with patch.object(VectorService, '_extrair_texto_ocr') as extrair_ocr:
                 paginas = VectorService._extrair_markdown_por_pagina(arquivo.name)
 
         extrair_ocr.assert_not_called()
         self.assertEqual(paginas, [(1, texto_direto)])
+
+    def test_extrair_paginas_retorna_vazio_para_arquivo_inexistente(self):
+        self.assertEqual(
+            VectorService.extrair_paginas('arquivo-inexistente.pdf'),
+            [],
+        )
+
+    def test_extrair_markdown_retorna_erro_para_pdf_invalido(self):
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            arquivo.write(b'nao e um pdf')
+            arquivo.flush()
+            with self.assertRaisesRegex(RuntimeError, 'Falha ao extrair o PDF'):
+                VectorService._extrair_markdown_por_pagina(arquivo.name)
+
+    def test_extrair_docx_retorna_texto_e_registra_pagina(self):
+        from docx import Document as WordDocument
+
+        with tempfile.NamedTemporaryFile(suffix='.docx') as arquivo:
+            documento_word = WordDocument()
+            documento_word.add_paragraph('Texto do documento Word')
+            documento_word.save(arquivo.name)
+            paginas = VectorService._extrair_docx_por_pagina(arquivo.name)
+
+        self.assertEqual(paginas, [(1, 'Texto do documento Word')])
+
+    def test_processar_documento_retorna_zero_sem_documento_ou_paginas(self):
+        self.assertEqual(VectorService.processar_documento(None), 0)
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            with patch.object(
+                VectorService,
+                '_extrair_markdown_por_pagina',
+                return_value=[],
+            ):
+                total = VectorService.processar_documento(
+                    self.documento,
+                    caminho_pdf=arquivo.name,
+                )
+
+        self.assertEqual(total, 0)
+
+    def test_processar_documento_persiste_lotes_intermediarios(self):
+        paginas = [(1, 'Texto da pagina ' * 1000)]
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
+            with patch.object(
+                VectorService,
+                '_extrair_markdown_por_pagina',
+                return_value=paginas,
+            ), patch.object(
+                VectorService,
+                'gerar_embeddings',
+                side_effect=lambda textos: [[0.1] * 256 for _ in textos],
+            ):
+                total = VectorService.processar_documento(
+                    self.documento,
+                    caminho_pdf=arquivo.name,
+                    batch_size=1,
+                )
+
+        self.assertGreater(total, 1)
+        self.assertEqual(
+            DocumentoChunk.objects.filter(id_documento=self.documento).count(),
+            total,
+        )
 
     def test_processar_documento_salva_chunks_extraidos(self):
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
@@ -118,8 +246,8 @@ class VectorServiceTest(TestCase):
                 return_value=[(2, 'Conteudo da pagina')],
             ), patch.object(
                 VectorService,
-                'gerar_embedding',
-                return_value=[0.1] * 768,
+                'gerar_embeddings',
+                return_value=[[0.1] * 256],
             ):
                 total = VectorService.processar_documento(
                     self.documento,
@@ -136,7 +264,7 @@ class VectorServiceTest(TestCase):
             id_documento=self.documento,
             pagina=1,
             conteudo='chunk antigo',
-            embedding=[0.1] * 768,
+            embedding=[0.1] * 256,
         )
         with tempfile.NamedTemporaryFile(suffix='.pdf') as arquivo:
             with patch.object(
@@ -145,7 +273,7 @@ class VectorServiceTest(TestCase):
                 return_value=[(1, 'Conteudo')],
             ), patch.object(
                 VectorService,
-                'gerar_embedding',
+                'gerar_embeddings',
                 side_effect=RuntimeError('embedding indisponivel'),
             ):
                 with self.assertRaises(RuntimeError):
@@ -167,12 +295,12 @@ class VectorServiceTest(TestCase):
             id_documento=self.documento,
             pagina=1,
             conteudo='conteudo filtravel',
-            embedding=[0.1] * 768,
+            embedding=[0.1] * 256,
         )
         with patch.object(
             VectorService,
             'gerar_embedding',
-            return_value=[0.1] * 768,
+            return_value=[0.1] * 256,
         ):
             contexto = VectorService.buscar_contexto(
                 'pergunta',
@@ -195,25 +323,25 @@ class VectorServiceTest(TestCase):
                 id_documento=self.documento,
                 pagina=1,
                 conteudo='primeiro trecho',
-                embedding=[0.1] * 768,
+                embedding=[0.1] * 256,
             ),
             DocumentoChunk(
                 id_documento=self.documento,
                 pagina=2,
                 conteudo='segundo trecho do mesmo documento',
-                embedding=[0.2] * 768,
+                embedding=[0.2] * 256,
             ),
             DocumentoChunk(
                 id_documento=segundo_documento,
                 pagina=1,
                 conteudo='trecho de outro documento',
-                embedding=[0.3] * 768,
+                embedding=[0.3] * 256,
             ),
         ])
         with patch.object(
             VectorService,
             'gerar_embedding',
-            return_value=[0.1] * 768,
+            return_value=[0.1] * 256,
         ):
             contexto = VectorService.buscar_contexto('pergunta')
 
