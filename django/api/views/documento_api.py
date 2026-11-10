@@ -151,7 +151,6 @@ class DocumentoViewSet(ModelViewSet):
                 )
 
                 etiquetas = TaggingService.classificar_pdf(texto_extraido)
-                logger.info('categorizacao etapa=etiquetagem etiquetas', etiquetas)
                 # Setor e etiqueta são definidos exclusivamente pela classificação.
                 # Valores enviados no upload não devem sobrescrever a categoria detectada.
                 documento.setor = setor
