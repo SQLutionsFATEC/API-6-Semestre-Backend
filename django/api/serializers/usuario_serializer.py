@@ -1,3 +1,5 @@
+import unicodedata
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from django.core.validators import RegexValidator
@@ -6,6 +8,17 @@ from api.services.keycloak_admin import NIVEIS_ACESSO, SETORES
 
 NIVEL_PADRAO = 'basico'
 SETOR_PADRAO = 'tecnico'
+NIVEIS_ATUALIZACAO = ('basico', 'comercial', 'militar')
+
+
+def _normalizar_valor(valor):
+    """Remove acentos, espaços extras e converte para letras minúsculas."""
+    sem_acentos = (
+        unicodedata.normalize('NFKD', str(valor))
+        .encode('ascii', 'ignore')
+        .decode('ascii')
+    )
+    return sem_acentos.strip().lower()
 
 
 def primeiro_valor(lista, padrao):
@@ -126,13 +139,14 @@ class UsuarioCreateSerializer(serializers.Serializer):
 
 
 class UsuarioUpdateSerializer(serializers.Serializer):
-    """Modificação parcial de campos de um usuário (rota admin)."""
+    """Modificação parcial de campos de um usuário (rota admin/operador)."""
 
     nome = serializers.CharField(required=False, max_length=255)
     sobrenome = serializers.CharField(required=False, max_length=255)
     email = serializers.EmailField(required=False)
-    setor = serializers.ChoiceField(choices=SETORES, required=False)
-    nivel_acesso = serializers.ChoiceField(choices=NIVEIS_ACESSO, required=False)
+    setor = serializers.CharField(required=False)
+    nivel = serializers.CharField(required=False)
+    nivel_acesso = serializers.CharField(required=False)
     senha = serializers.CharField(
         required=False,
         write_only=True,
@@ -141,13 +155,48 @@ class UsuarioUpdateSerializer(serializers.Serializer):
     )
     senha_temporaria = serializers.BooleanField(
         required=False,
-        default=True,
         write_only=True,
         help_text='Se a nova senha deve ser temporária (troca obrigatória no próximo login).',
     )
     habilitado = serializers.BooleanField(required=False)
 
+    def validate_setor(self, valor):
+        normalizado = _normalizar_valor(valor)
+        if normalizado not in SETORES:
+            raise serializers.ValidationError(
+                'Setor inválido. Valores permitidos: Técnico, Normativo, Jurídico e Qualitativo.'
+            )
+        return normalizado
+
+    def _validar_nivel_atualizacao(self, valor):
+        normalizado = _normalizar_valor(valor)
+        if normalizado == 'operador':
+            raise serializers.ValidationError(
+                'Não é permitido atribuir o nível Operador por esta rota.'
+            )
+        if normalizado not in NIVEIS_ATUALIZACAO:
+            raise serializers.ValidationError(
+                'Nível inválido. Valores permitidos: Básico, Comercial e Militar.'
+            )
+        return normalizado
+
+    def validate_nivel(self, valor):
+        return self._validar_nivel_atualizacao(valor)
+
+    def validate_nivel_acesso(self, valor):
+        return self._validar_nivel_atualizacao(valor)
+
     def validate(self, attrs):
+        permitidos = set(self.fields.keys())
+        proibidos = set(self.initial_data.keys()) - permitidos
+        if proibidos:
+            raise serializers.ValidationError(
+                {campo: 'Campo inválido.' for campo in sorted(proibidos)}
+            )
+
+        if 'nivel' in attrs:
+            attrs['nivel_acesso'] = attrs.pop('nivel')
+
         if 'senha' in attrs and 'senha_temporaria' not in attrs:
             attrs['senha_temporaria'] = True
         return attrs
