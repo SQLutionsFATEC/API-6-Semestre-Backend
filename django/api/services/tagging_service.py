@@ -58,7 +58,7 @@ class TaggingService:
         for i in range(0, len(texto), TAMANHO_CHUNK):
             print(i, len(texto))
             chunk = texto[i : i + TAMANHO_CHUNK]
-            doc = nlp(chunk)
+            doc = cls._nlp(chunk)
             for token in doc:
                 if token.pos_ == "NOUN" and len(token.text) >= 3 and token.is_alpha and token.lemma_ not in PALAVRAS_LIXO:
                     substantivos.append(token.lemma_)
@@ -81,7 +81,7 @@ class TaggingService:
             return []
 
         
-        distribuicoes, _ = topic_model.approximate_distribution(
+        distribuicoes, _ = cls._model.approximate_distribution(
             [texto_limpo],
             window=50,
             stride=15
