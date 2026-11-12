@@ -11,6 +11,7 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+
 def _load_topic_model():
     legacy_normalize = "sentence_transformers.base.modules.normalize"
     current_normalize = "sentence_transformers.sentence_transformer.modules.normalize"
@@ -19,18 +20,12 @@ def _load_topic_model():
     return joblib.load(settings.TAGGING_MODEL_PATH)
 
 
-# t = time.time()
-# topic_model = _load_topic_model()
-# logger.warning(f"Modelo joblib carregado em: {time.time()-t}")
-# t = time.time()
-# nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
-# logger.warning(f"Modelo nlp carregado em: {time.time()-t}")
-
 PALAVRAS_LIXO = {
     "everyspec", "downloaded", "www", "com", "https", "http", "from",
     "shall", "verify", "version", "did", "associated", "use", "current",
     "check", "applicable", "dated", "yes", "information", "operations"
 }
+
 
 class TaggingService:
     _model = None
@@ -39,7 +34,7 @@ class TaggingService:
     @classmethod
     def get_model(cls):
         if cls._model is None:
-            cls._model = _load_topic_model() #joblib.load(settings.TAGGING_MODEL_PATH)
+            cls._model = _load_topic_model()  # joblib.load(settings.TAGGING_MODEL_PATH)
 
     @classmethod
     def get_nlp(cls):
@@ -49,7 +44,8 @@ class TaggingService:
     @classmethod
     def nlp_texto(cls, texto):
         nlp_start = time.time()
-        if not texto: return ""
+        if not texto:
+            return ""
 
         substantivos = []
         TAMANHO_CHUNK = settings.NLP_CHUNK_SIZE
@@ -66,6 +62,7 @@ class TaggingService:
 
         logger.info(f"NLP feito em {round(time.time()-nlp_start, 2)} segundos")
         return " ".join(substantivos)
+
     @classmethod
     def classificar_pdf(cls, texto_limpo):
         t = time.time()
@@ -80,7 +77,6 @@ class TaggingService:
             logger.error("Erro: Nenhum texto útil encontrado no PDF.")
             return []
 
-        
         distribuicoes, _ = cls._model.approximate_distribution(
             [texto_limpo],
             window=50,
@@ -92,7 +88,6 @@ class TaggingService:
         # Ordena do maior pro menor
         topicos_ranqueados = np.argsort(notas_topicos)[::-1]
 
-
         for num_topico in topicos_ranqueados:
             probabilidade = notas_topicos[num_topico]
             
@@ -100,7 +95,7 @@ class TaggingService:
             if num_topico == -1 or probabilidade < 0.01:
                 continue
                 
-            info_topico = topic_model.get_topic_info(num_topico)
+            info_topico = cls._model.get_topic_info(num_topico)
             
             if 'CustomName' in info_topico.columns:
                 nome_oficial = info_topico['CustomName'].values[0]
