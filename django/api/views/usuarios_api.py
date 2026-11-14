@@ -12,6 +12,7 @@ from api.serializers.usuario_serializer import (
     UsuarioSerializer,
     UsuarioUpdateSerializer,
     UsuarioPerfilUpdateSerializer,
+    nivel_do_usuario,
 )
 from api.services import delecao_usuario, keycloak_admin
 
@@ -188,18 +189,20 @@ class UsuarioDetalheView(APIView):
     @extend_schema(
         summary='Modifica campos de um usuário (admin/operador)',
         description=(
-            'Modifica nome, sobrenome, email, setor (atributo do usuário), '
-            'nivel_acesso (realm role, ex.: de basico para operador) e/ou '
-            'senha. Se a nova senha for temporária (senha_temporaria=true, '
-            'padrão), o usuário é obrigado a trocá-la no próximo login. '
-            'Acesso restrito à realm role admin ou operador.'
+            'Atualiza setor (Técnico, Normativo, Jurídico ou Qualitativo) e '
+            'nivel (Básico, Comercial ou Militar) de um usuário, normalizando '
+            'os valores (sem acentos e em minúsculas). Não permite promover '
+            'usuários para Operador nem modificar usuários que já são Operadores. '
+            'Acesso restrito a usuários autenticados com nível Operador ou Admin.'
         ),
         request=UsuarioUpdateSerializer,
         responses={
             200: UsuarioSerializer,
             400: OpenApiResponse(description='Dados inválidos.'),
             401: OpenApiResponse(description='Usuário não autenticado.'),
-            403: OpenApiResponse(description='Requer nível Operador ou Admin.'),
+            403: OpenApiResponse(
+                description='Requer nível Operador/Admin ou tentativa de modificar um Operador.'
+            ),
             404: OpenApiResponse(description='Usuário não encontrado no Keycloak.'),
             502: OpenApiResponse(description='Falha de comunicação com o Keycloak.'),
         },
@@ -209,6 +212,13 @@ class UsuarioDetalheView(APIView):
         serializer.is_valid(raise_exception=True)
 
         try:
+            papeis_atuais = keycloak_admin.listar_papeis_realm_usuario(id_usuario)
+            if nivel_do_usuario(papeis_atuais) == 'operador':
+                return Response(
+                    {'erro': 'Não é permitido modificar usuários com nível Operador.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
             usuario = keycloak_admin.atualizar_usuario(
                 id_usuario, **serializer.validated_data
             )
