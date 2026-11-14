@@ -82,17 +82,21 @@ log 'Restaurando banco do Keycloak...'
 
 if [[ -s "$BACKUP_DIR/media.tar.gz" ]]; then
     log 'Restaurando arquivos de mídia...'
-    tar xzf "$BACKUP_DIR/media.tar.gz" -C "$DEPLOY_DIR/../django"
+    sudo chown -R "$(id -u):$(id -g)" "$DEPLOY_DIR/../django/media" 2>/dev/null || true
+    tar xzf "$BACKUP_DIR/media.tar.gz" -C "$DEPLOY_DIR/../django" --overwrite
 fi
 
-# Garante que a tabela usuario_deletado exista no banco independente antes de
-# mesclar os tombstones do backup. O entrypoint também roda as migrations.
-log 'Aplicando migrations (incluindo banco de tombstones)...'
-# O entrypoint do backend roda as migrations do banco da aplicação e do banco
-# de tombstones; a chamada explícita garante o schema do tombstones mesmo se
-# o entrypoint for alterado no futuro.
-"${COMPOSE[@]}" run --rm --no-deps -T "$BACKEND_SERVICE" \
-    python manage.py migrate --database=tombstones --noinput
+log 'Marcando migration problemática como aplicada (--fake, sem entrypoint)...'
+"${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python "$BACKEND_SERVICE" \
+    manage.py migrate api 0008_termo_clausula_clausulatermo --fake
+
+log 'Aplicando migrations do banco da aplicação (sem entrypoint)...'
+"${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python "$BACKEND_SERVICE" \
+    manage.py migrate --noinput
+
+log 'Aplicando migrations do banco de tombstones (sem entrypoint)...'
+"${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python "$BACKEND_SERVICE" \
+    manage.py migrate --database=tombstones --noinput
 
 log 'Mesclando tombstones confirmados do backup (união, sem apagar registros atuais)...'
 TMP_DIR="$(mktemp -d "$DEPLOY_DIR/.restore-tombstones-XXXXXX")"
