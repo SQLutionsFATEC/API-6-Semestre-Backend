@@ -261,8 +261,8 @@ def test_atualizar_usuario_preserva_campos_quando_muda_somente_setor(envio):
     feitas, enfileirar = envio
     enfileirar(
         RespostaFake(status_code=200, dados={
-            'id': ID_USUARIO, 'firstName': 'Maria', 'lastName': 'Silva',
-            'email': 'maria@x.com',
+            'id': ID_USUARIO, 'username': 'maria', 'firstName': 'Maria',
+            'lastName': 'Silva', 'email': 'maria@x.com', 'enabled': True,
         }),
         RespostaFake(status_code=204),  # PUT com payload mesclado
         RespostaFake(status_code=200, dados={'id': ID_USUARIO}),
@@ -272,9 +272,11 @@ def test_atualizar_usuario_preserva_campos_quando_muda_somente_setor(envio):
 
     payload = feitas[1]['json']
     assert payload['attributes'] == {'setor': ['qualitativo']}
+    assert payload['username'] == 'maria'
     assert payload['firstName'] == 'Maria'
     assert payload['lastName'] == 'Silva'
     assert payload['email'] == 'maria@x.com'
+    assert payload['enabled'] is True
 
 
 def test_trocar_nivel_acesso_remove_antiga_e_atribui_nova(envio):
