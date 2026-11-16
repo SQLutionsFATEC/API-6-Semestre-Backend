@@ -6,6 +6,11 @@ from .usuario_serializer import (
     UsuarioSerializer,
     UsuarioUpdateSerializer,
 )
+from .solicitacao_acesso_serializer import (
+    SolicitacaoAcessoCreateSerializer,
+    SolicitacaoAcessoSerializer,
+    SolicitacaoAcessoUpdateSerializer,
+)
 
 __all__ = [
     'DocumentoSerializer',
@@ -15,4 +20,7 @@ __all__ = [
     'UsuarioPerfilUpdateSerializer',
     'UsuarioCreateSerializer',
     'UsuarioUpdateSerializer',
+    'SolicitacaoAcessoSerializer',
+    'SolicitacaoAcessoCreateSerializer',
+    'SolicitacaoAcessoUpdateSerializer',
 ]
