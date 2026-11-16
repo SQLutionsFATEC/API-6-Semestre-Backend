@@ -216,7 +216,60 @@ def delete(self, request, id_usuario):
 
 > Use `operation_id` explícito nas duas rotas de deleção: sem ele, o `drf-spectacular` gera o mesmo id de operação para ambas e o schema emite aviso de colisão.
 
-## 9. Convenções do projeto
+## 9. Solicitações de acesso a documentos
+
+As solicitações são persistidas na tabela `solicitacao_acesso`. O documento
+possui uma chave estrangeira para `documento`; `usuario_id` é o `sub` do
+usuário no Keycloak, pois os usuários não são armazenados em uma tabela local.
+A combinação de documento e usuário é única, portanto uma segunda solicitação
+não cria outro registro.
+
+| Rota | Método | Quem pode | Respostas |
+|---|---|---|---|
+| `/api/solicitacoes-acesso/` | POST | usuário autenticado não operador | `201` nova solicitação, `200` já existente, `400`, `401`, `403` |
+| `/api/solicitacoes-acesso/` | GET | operador | lista paginada, `401`, `403` |
+| `/api/solicitacoes-acesso/{id}/` | PATCH | operador | altera `approved`, `200`, `400`, `401`, `403`, `404` |
+
+Exemplos de payload:
+
+```json
+// POST
+{"documento_id": 42}
+
+// PATCH
+{"approved": true}
+```
+
+O GET usa paginação por `page` e retorna `count`, `next`, `previous` e
+`results`:
+
+```text
+GET /api/solicitacoes-acesso/?page=2
+```
+
+Para verificar se um usuário possui acesso especial a um documento, consulte
+uma solicitação aprovada para os dois identificadores:
+
+```sql
+SELECT 1
+FROM solicitacao_acesso
+WHERE documento_id = 42
+  AND usuario_id = 'sub-do-usuario-no-keycloak'
+  AND approved = TRUE;
+```
+
+Se a consulta retornar uma linha, a solicitação foi aprovada. No Django, a
+mesma verificação pode ser feita com:
+
+```python
+SolicitacaoAcesso.objects.filter(
+    documento_id=id_documento,
+    usuario_id=request.user.id,
+    approved=True,
+).exists()
+```
+
+## 10. Convenções do projeto
 
 - Mantenha as rotas sob o prefixo `/api/`.
 - Use nomes em português consistentes com os recursos existentes.
