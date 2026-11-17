@@ -25,6 +25,13 @@ ML_MODEL_PATH = Path(
     )
 )
 
+TAGGING_MODEL_PATH = Path(
+    os.getenv(
+        "TAGGING_MODEL_PATH",
+        BASE_DIR.parent / 'docs' / 'ml_bertopic' / 'artifacts' / 'modelo_categorias_cpu_named.joblib'
+    )
+)
+NLP_CHUNK_SIZE = os.getenv("NLP_CHUNK_SIZE", 500000)  # tamanho das fatias usadas no nlp.
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
