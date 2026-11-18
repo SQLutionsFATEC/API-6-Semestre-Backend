@@ -636,6 +636,47 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(response.status_code, 200)
         buscar_contexto.assert_not_called()
 
+    def test_pesquisa_documentos_operador_retorna_403(self):
+        """Operador NÃO pode usar a busca por contexto semântico."""
+        with patch(
+            'api.views.documento_api.VectorService.buscar_contexto'
+        ) as buscar_contexto:
+            response = self.client.get(
+                '/api/documentos/',
+                {'contexto': 'teste'},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['erro'], 'Operadores não podem utilizar a busca por contexto semântico.')
+        buscar_contexto.assert_not_called()
+
+    def test_pesquisa_documentos_usuario_comum_permite_contexto(self):
+        """Usuário comum (não-operador) PODE usar a busca por contexto semântico."""
+        User = get_user_model()
+        usuario_comum = User.objects.create_user(
+            username='usuario_comum',
+            password='senha123',
+        )
+        usuario_comum.nivel = 'Basico'
+        usuario_comum.setor = 'TI'
+        
+        self.client.force_authenticate(user=usuario_comum)
+
+        resultados = [
+            {'id_chunk': 1, 'id_documento_id': self.documento.id_documento}
+        ]
+        with patch(
+            'api.views.documento_api.VectorService.buscar_contexto',
+            return_value=resultados,
+        ) as buscar_contexto:
+            response = self.client.get(
+                '/api/documentos/',
+                {'contexto': 'teste'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        buscar_contexto.assert_called_once()
+        
     def test_cria_documento_chunk_com_embedding_valido(self):
         from api.models import DocumentoChunk
 
