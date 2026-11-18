@@ -111,7 +111,8 @@ class SolicitacaoAcessoDetalheView(APIView):
             partial=True,
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        solicitacao = serializer.save()
+        solicitacao.refresh_from_db()
         return Response(
             SolicitacaoAcessoSerializer(solicitacao).data,
             status=status.HTTP_200_OK,
