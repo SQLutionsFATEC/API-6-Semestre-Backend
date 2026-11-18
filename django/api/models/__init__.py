@@ -8,6 +8,7 @@ from .termo import Termo
 from .clausula_termo import ClausulaTermo
 from .consentimento import Consentimento
 from .vazamento import Vazamento
+from .solicitacao_acesso import SolicitacaoAcesso
 
 __all__ = [
     'Etiqueta',
@@ -20,4 +21,5 @@ __all__ = [
     'ClausulaTermo',
     'Consentimento',
     'Vazamento',
+    'SolicitacaoAcesso',
 ]

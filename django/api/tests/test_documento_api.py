@@ -416,7 +416,6 @@ class DocumentoApiTest(TestCase):
         mock_classificar.assert_called_once()
         documento = Documento.objects.get(id_documento=response.json()['id_documento'])
         self.assertEqual(documento.setor, 'TI')
-        self.assertTrue(documento.etiquetas.filter(nome='TI').exists())
 
     def test_criar_documento_sem_setor_classifica_e_persiste_categoria(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -448,7 +447,6 @@ class DocumentoApiTest(TestCase):
         mock_classificar.assert_called_once()
         documento = Documento.objects.get(id_documento=response.json()['id_documento'])
         self.assertEqual(documento.setor, 'Normativo')
-        self.assertTrue(documento.etiquetas.filter(nome='Normativo').exists())
         self.assertFalse(documento.etiquetas.filter(nome='urgente').exists())
 
     def test_criar_documento_sem_classificacao_persiste_nao_classificado(self):
@@ -479,9 +477,6 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(response.status_code, 201)
         documento = Documento.objects.get(id_documento=response.json()['id_documento'])
         self.assertEqual(documento.setor, 'NAO_CLASSIFICADO')
-        self.assertTrue(
-            documento.etiquetas.filter(nome='NAO_CLASSIFICADO').exists()
-        )
 
     def test_criar_documento_docx_informa_tipo_automaticamente(self):
         from io import BytesIO
@@ -568,8 +563,6 @@ class DocumentoApiTest(TestCase):
         mock_classificar.assert_called_once()
         documento = Documento.objects.get(id_documento=response.json()['id_documento'])
         self.assertEqual(documento.setor, 'Normativo')
-        self.assertTrue(documento.etiquetas.filter(nome='Normativo').exists())
-        self.assertFalse(documento.etiquetas.filter(nome='Financeiro').exists())
 
     def test_criar_documento_retorna_400_quando_processamento_falha(self):
         from django.core.files.uploadedfile import SimpleUploadedFile

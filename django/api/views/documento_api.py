@@ -19,6 +19,7 @@ from api.models import Etiqueta
 from api.serializers import DocumentoSerializer, DocumentoUpdateSerializer
 from api.serializers import EtiquetaSerializer
 from api.services.ml_service import MLService
+from api.services.tagging_service import TaggingService
 from api.services.vector_service import VectorService
 from api.services.authorization_service import verificar_acesso
 from api.permissions import IsOperador
@@ -149,6 +150,7 @@ class DocumentoViewSet(ModelViewSet):
                     perf_counter() - inicio_categorizacao,
                 )
 
+                etiquetas = TaggingService.classificar_pdf(texto_extraido)
                 # Setor e etiqueta são definidos exclusivamente pela classificação.
                 # Valores enviados no upload não devem sobrescrever a categoria detectada.
                 documento.setor = setor
@@ -159,13 +161,16 @@ class DocumentoViewSet(ModelViewSet):
                     setor,
                 )
 
-                etiqueta, _ = Etiqueta.objects.get_or_create(nome=setor)
-                documento.etiquetas.add(etiqueta)
-                logger.info(
-                    'categorizacao etapa=etiqueta_vinculada documento_id=%s etiqueta=%s',
-                    documento.id_documento,
-                    etiqueta.nome,
-                )
+                for etiqueta in etiquetas:
+                    etiqueta_instance, _ = Etiqueta.objects.get_or_create(nome=etiqueta)
+                    documento.etiquetas.add(etiqueta_instance)
+                    # etiqueta, _ = Etiqueta.objects.get_or_create(nome=setor)
+                    # documento.etiquetas.add(etiqueta)
+                    logger.info(
+                        'categorizacao etapa=etiqueta_vinculada documento_id=%s etiqueta=%s',
+                        documento.id_documento,
+                        etiqueta,
+                    )
 
                 logger.info(
                     'embedding etapa=inicio documento_id=%s paginas=%d',
