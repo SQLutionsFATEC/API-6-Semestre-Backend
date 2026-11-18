@@ -26,6 +26,10 @@ from api.views.etiqueta_api import EtiquetaViewSet
 from api.views.perfil_api import PerfilView
 from api.views.usuarios_api import UsuarioDetalheView, UsuariosView
 from api.views.vazamento_api import VazamentoView
+from api.views.solicitacoes_acesso_api import (
+    SolicitacaoAcessoDetalheView,
+    SolicitacoesAcessoView,
+)
 
 router = DefaultRouter()
 router.register(r'documentos', DocumentoViewSet, basename='documento')
@@ -36,6 +40,16 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/perfil/', PerfilView.as_view(), name='perfil'),
     path('api/vazamentos/', VazamentoView.as_view(), name='vazamentos'),
+    re_path(
+        r'^api/solicitacoes-acesso/?$',
+        SolicitacoesAcessoView.as_view(),
+        name='solicitacoes-acesso',
+    ),
+    re_path(
+        r'^api/solicitacoes-acesso/(?P<id_solicitacao>\d+)/?$',
+        SolicitacaoAcessoDetalheView.as_view(),
+        name='solicitacao-acesso-detalhe',
+    ),
     re_path(r'^api/usuarios/?$', UsuariosView.as_view(), name='usuarios'),
     re_path(
         r'^api/usuarios/(?P<id_usuario>[^/]+)/?$',
