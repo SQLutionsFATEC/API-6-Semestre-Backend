@@ -6,7 +6,7 @@ from api.models import Documento, SolicitacaoAcesso
 class SolicitacaoAcessoSerializer(serializers.ModelSerializer):
     documento_id = serializers.PrimaryKeyRelatedField(
         source='documento',
-        queryset=Documento.objects.all(),
+        read_only=True,
     )
     usuario_id = serializers.CharField(read_only=True)
 
