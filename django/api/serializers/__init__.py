@@ -11,6 +11,7 @@ from .solicitacao_acesso_serializer import (
     SolicitacaoAcessoSerializer,
     SolicitacaoAcessoUpdateSerializer,
 )
+from .vazamento_serializer import VazamentoSerializer
 
 __all__ = [
     'DocumentoSerializer',
@@ -23,4 +24,5 @@ __all__ = [
     'SolicitacaoAcessoSerializer',
     'SolicitacaoAcessoCreateSerializer',
     'SolicitacaoAcessoUpdateSerializer',
+    'VazamentoSerializer',
 ]
