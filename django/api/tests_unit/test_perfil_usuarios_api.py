@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from api.authentication.keycloak import KeycloakUser
+from api.permissions import AceitouClausulasObrigatorias
 from api.services.delecao_usuario import hash_id_usuario
 from api.services.keycloak_admin import KeycloakAdminException
 
@@ -45,6 +46,15 @@ USUARIO_REPRESENTACAO_ADMIN = {
     'attributes': {'setor': ['normativo']},
     'realmRoles': ['admin', 'operador'],
 }
+
+
+@pytest.fixture(autouse=True)
+def ignorar_consentimento_nos_testes_de_perfil(monkeypatch):
+    monkeypatch.setattr(
+        AceitouClausulasObrigatorias,
+        'has_permission',
+        lambda self, request, view: True,
+    )
 
 
 def _cliente_com(usuario=None):
