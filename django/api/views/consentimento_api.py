@@ -2,6 +2,7 @@
 import logging
 
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -88,8 +89,24 @@ class ConsentimentoView(APIView):
             )
 
     def patch(self, request):
-        serializer = ConsentimentoUpdateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        serializer = ConsentimentoUpdateSerializer()
+
+        try:
+            dados_validados = serializer.to_internal_value(request.data)
+        except ValidationError as erro:
+            detalhes = erro.detail
+            if isinstance(detalhes, list):
+                mensagem = "; ".join(str(m) for m in detalhes)
+            elif isinstance(detalhes, dict):
+                mensagem = "; ".join(
+                    str(m) for v in detalhes.values() for m in (v if isinstance(v, list) else [v])
+                )
+            else:
+                mensagem = str(detalhes)
+            return Response(
+                {"detail": mensagem},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             usuario_id = request.user.id
@@ -99,8 +116,8 @@ class ConsentimentoView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            aceites = [id_c for id_c, v in serializer.validated_data.items() if v]
-            recusas = [id_c for id_c, v in serializer.validated_data.items() if not v]
+            aceites = [id_c for id_c, v in dados_validados.items() if v]
+            recusas = [id_c for id_c, v in dados_validados.items() if not v]
 
             if aceites:
                 consentir_clausulas(usuario_id, aceites)
