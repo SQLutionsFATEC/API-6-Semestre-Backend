@@ -164,8 +164,6 @@ class DocumentoViewSet(ModelViewSet):
                 for etiqueta in etiquetas:
                     etiqueta_instance, _ = Etiqueta.objects.get_or_create(nome=etiqueta)
                     documento.etiquetas.add(etiqueta_instance)
-                    # etiqueta, _ = Etiqueta.objects.get_or_create(nome=setor)
-                    # documento.etiquetas.add(etiqueta)
                     logger.info(
                         'categorizacao etapa=etiqueta_vinculada documento_id=%s etiqueta=%s',
                         documento.id_documento,
@@ -192,10 +190,6 @@ class DocumentoViewSet(ModelViewSet):
                 )
 
         except Exception as e:
-            # Atenção: O banco de dados já fez o rollback neste ponto.
-            # Se o arquivo físico no disco não for apagado automaticamente pelos seus models/signals,
-            # você pode precisar apagar o arquivo físico aqui usando 'os.remove(caminho_pdf)'
-
             logger.exception(
                 'upload etapa=falha documento_id=%s duracao_s=%.3f erro=%s',
                 getattr(locals().get('documento'), 'id_documento', None),
@@ -208,7 +202,6 @@ class DocumentoViewSet(ModelViewSet):
 
     # ========================================================
     # GET /api/documentos/{id_documento}/
-    # Exibição com autorização (retorna 403 se não tiver permissão)
     # ========================================================
     @extend_schema(
         description=(
@@ -256,8 +249,10 @@ class DocumentoViewSet(ModelViewSet):
             "sobre os documentos aprovados pelos filtros anteriores. "
             "A filtragem NÃO é afetada pelas permissões do usuário. "
             "Cada documento inclui o campo 'acesso_permitido' (boolean) para o frontend "
-            "saber se o usuário tem acesso àquele documento. "
-            "Requer autenticação: retorna 401 caso o usuário não envie autenticação válida."
+            "Saber se o usuário tem acesso àquele documento. "
+            "Requer autenticação: retorna 401 caso o usuário não envie autenticação válida. "
+            "**Atenção:** O filtro 'contexto' é restrito a usuários não-operadores. "
+            "Operadores que enviarem 'contexto' receberão 403 Forbidden."
         ),
         parameters=[
             OpenApiParameter(
@@ -310,7 +305,7 @@ class DocumentoViewSet(ModelViewSet):
                 name="contexto",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description="Busca documentos pelo contexto semântico. A busca agirá APENAS sobre os documentos que já passaram pelos filtros anteriores.",
+                description="Busca documentos pelo contexto semântico. A busca agirá APENAS sobre os documentos que já passaram pelos filtros anteriores. **Restrito a não-operadores.**",
                 required=False,
                 examples=[
                     OpenApiExample(
@@ -332,6 +327,7 @@ class DocumentoViewSet(ModelViewSet):
             200: OpenApiResponse(description="Lista paginada de documentos com o campo 'acesso_permitido'."),
             400: OpenApiResponse(description="Número de página inválido."),
             401: OpenApiResponse(description="Usuário não autenticado."),
+            403: OpenApiResponse(description="Operadores não podem usar o filtro de contexto."),
             404: OpenApiResponse(description="Página solicitada inexistente."),
         },
     )
@@ -341,6 +337,23 @@ class DocumentoViewSet(ModelViewSet):
         data_atualizacao = request.query_params.get("data_atualizacao")
         setor = request.query_params.get("setor")
         contexto = request.query_params.get("contexto")
+
+        if contexto:
+            tem_role = getattr(request.user, 'has_role', None)
+            is_operador = False
+            
+            if tem_role and request.user.has_role('operador'):
+                is_operador = True
+            else:
+                nivel = getattr(request.user, 'nivel_acesso', getattr(request.user, 'nivel', None))
+                if isinstance(nivel, str) and nivel.lower() == 'operador':
+                    is_operador = True
+
+            if is_operador:
+                return Response(
+                    {"erro": "Operadores não podem utilizar a busca por contexto semântico."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         queryset = self.get_queryset()
 

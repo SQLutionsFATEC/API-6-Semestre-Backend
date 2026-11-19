@@ -278,3 +278,21 @@ SolicitacaoAcesso.objects.filter(
 - Não remova a documentação das rotas existentes ao alterar uma view.
 - Atualize o serializer quando o contrato de entrada ou saída mudar.
 - Evite duplicar manualmente no schema o que já é inferido pelo serializer.
+
+## 11. Busca Especial e Níveis de Acesso (Task 103)
+
+A rota de listagem de documentos (`GET /api/documentos/`) permite filtrar documentos por contexto semântico através do parâmetro `contexto`. Esta é uma funcionalidade de acesso especial.
+
+**Regra de Negócio:**
+- **Usuários com nível Operador NÃO podem utilizar o filtro `contexto`.** Caso um operador envie o parâmetro `contexto`, a API retornará `403 Forbidden`.
+- Usuários comuns (Básico, Comercial, Militar) podem utilizar o filtro normalmente. O resultado da busca já respeita as regras de visibilidade de setor e nível definidas na função `verificar_acesso` (em `api/services/authorization_service.py`).
+
+**Verificação de Acesso Especial (Solicitação Aprovada):**
+Para verificar se um usuário possui acesso especial a um documento (solicitação aprovada), utilize a consulta no Django:
+
+```python
+SolicitacaoAcesso.objects.filter(
+    documento_id=id_documento,
+    usuario_id=request.user.id,
+    approved=True,
+).exists()
