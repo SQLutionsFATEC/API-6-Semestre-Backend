@@ -37,6 +37,7 @@ class ConsentimentoUpdateSerializer(serializers.Serializer):
     Exemplo:
         {"1": true, "2": false, "15": true}
     """
+
     def to_internal_value(self, data):
         if not isinstance(data, dict) or not data:
             raise serializers.ValidationError(
