@@ -17,9 +17,7 @@ class _UsuarioFake:
 
 @pytest.fixture
 def client_logado():
-    """Cliente DRF com o usuário fake autenticado."""
-    client = APIClient()
-    return client
+    return APIClient()
 
 
 @pytest.fixture
@@ -38,7 +36,6 @@ def test_get_sem_id_retorna_termo_atual_e_estado_do_usuario(client_logado, estad
     termo, c_obrig, c_opc = estado_inicial
     usuario = _UsuarioFake("uuid-teste")
 
-    # Usuário consente com a primeira cláusula
     consentir_clausulas(usuario.id, [c_obrig.id_clausula])
 
     client_logado.force_authenticate(user=usuario)
@@ -60,10 +57,8 @@ def test_get_por_id_retorna_estado_de_outro_usuario(client_logado, estado_inicia
     termo, c_obrig, c_opc = estado_inicial
     outro_usuario_id = "uuid-outro-user"
 
-    # O outro usuário consentiu com as duas
     consentir_clausulas(outro_usuario_id, [c_obrig.id_clausula, c_opc.id_clausula])
 
-    # O logado é apenas o "admin" pedindo os dados do outro
     client_logado.force_authenticate(user=_UsuarioFake("uuid-admin"))
     response = client_logado.get(f'/api/consentimento/{outro_usuario_id}')
 
@@ -92,7 +87,6 @@ def test_patch_atualiza_consentimento_e_retorna_estado_atualizado(client_logado,
     assert primeira['aceita'] is True
     assert segunda['aceita'] is False
 
-    # O banco precisa ter 2 registros de consentimento (um para cada cláusula)
     assert Consentimento.objects.filter(id_usuario=usuario.id).count() == 2
 
 
