@@ -1,13 +1,13 @@
 """Endpoints HTTP para consulta e alteração de consentimentos do usuário."""
 import logging
 
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.models import Clausula, Consentimento
 from api.serializers.consentimento_serializer import (
     ConsentimentoUpdateSerializer,
     TermoConsentimentoSerializer,
@@ -23,11 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 def _montar_payload_termo(id_usuario):
-    """
-    Monta o dicionário com o termo em vigor e o estado de cada cláusula para um
-    usuário. Se `id_usuario` for None (uso no GET sem id), todas as cláusulas
-    aparecem com `aceita=None`.
-    """
     termo = obter_termo_atual()
 
     if id_usuario:
@@ -57,15 +52,25 @@ def _montar_payload_termo(id_usuario):
 
 
 class ConsentimentoView(APIView):
-    """
-    Endpoints da rota /api/consentimento.
-
-    GET  /api/consentimento            -> Termo atual + estado do usuário logado.
-    GET  /api/consentimento/<id>       -> Termo atual + estado do usuário <id>.
-    PATCH /api/consentimento           -> Altera consentimento do usuário logado.
-    """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary='Retorna o termo atual e o estado de consentimento do usuário',
+        description='Se o ID do usuário não for informado na URL, retorna o estado do usuário logado.',
+        parameters=[
+            OpenApiParameter(
+                name='id_usuario',
+                type=str,
+                location=OpenApiParameter.PATH,
+                description='UUID do usuário no Keycloak.',
+                required=False,
+            )
+        ],
+        responses={
+            200: TermoConsentimentoSerializer,
+            401: OpenApiResponse(description='Não autenticado'),
+        },
+    )
     def get(self, request, id_usuario=None):
         try:
             if id_usuario is None:
@@ -88,6 +93,16 @@ class ConsentimentoView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary='Atualiza o consentimento do usuário logado',
+        description='Aceita um objeto JSON onde a chave é o ID da cláusula e o valor é um boolean (true para aceitar, false para revogar).',
+        request=ConsentimentoUpdateSerializer,
+        responses={
+            200: TermoConsentimentoSerializer,
+            400: OpenApiResponse(description='Dados inválidos (ID não pertence ao termo atual ou valor não-boolean)'),
+            401: OpenApiResponse(description='Não autenticado'),
+        },
+    )
     def patch(self, request):
         serializer = ConsentimentoUpdateSerializer()
 
