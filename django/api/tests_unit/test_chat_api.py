@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from rest_framework import status
@@ -92,8 +92,6 @@ def test_chat_payload_invalido_retorna_400():
 
 
 def test_chat_extrai_substantivos_com_spacy():
-    from unittest.mock import MagicMock
-
     token_noun = MagicMock(pos_='NOUN', text='safety', lemma_='safety', is_alpha=True)
     token_propn = MagicMock(pos_='PROPN', text='NASA', lemma_='nasa', is_alpha=True)
     token_stop = MagicMock(pos_='NOUN', text='documento', lemma_='documento', is_alpha=True)

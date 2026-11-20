@@ -489,7 +489,7 @@ class ChatService:
             if re.match(r'^[\|\-\s:]+$', linha_str):
                 continue
             # Remove pipes de tabela das bordas mantendo o texto legível
-            linha_str = re.sub(r'^\||\|$', '', linha_str).strip()
+            linha_str = re.sub(r'(?:^\||\|$)', '', linha_str).strip()
             if linha_str:
                 linhas_limpas.append(linha_str)
 
