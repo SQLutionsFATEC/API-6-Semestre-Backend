@@ -11,6 +11,11 @@ from .solicitacao_acesso_serializer import (
     SolicitacaoAcessoSerializer,
     SolicitacaoAcessoUpdateSerializer,
 )
+from .chat_serializer import (
+    ChatDocumentoRelevanteSerializer,
+    ChatRequestSerializer,
+    ChatResponseSerializer,
+)
 
 __all__ = [
     'DocumentoSerializer',
@@ -23,4 +28,7 @@ __all__ = [
     'SolicitacaoAcessoSerializer',
     'SolicitacaoAcessoCreateSerializer',
     'SolicitacaoAcessoUpdateSerializer',
+    'ChatRequestSerializer',
+    'ChatDocumentoRelevanteSerializer',
+    'ChatResponseSerializer',
 ]

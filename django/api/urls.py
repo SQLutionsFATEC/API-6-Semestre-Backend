@@ -30,6 +30,7 @@ from api.views.solicitacoes_acesso_api import (
     SolicitacaoAcessoDetalheView,
     SolicitacoesAcessoView,
 )
+from api.views.chat_api import ChatView
 
 router = DefaultRouter()
 router.register(r'documentos', DocumentoViewSet, basename='documento')
@@ -40,6 +41,7 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/perfil/', PerfilView.as_view(), name='perfil'),
     path('api/vazamentos/', VazamentoView.as_view(), name='vazamentos'),
+    re_path(r'^api/chat/?$', ChatView.as_view(), name='chat'),
     re_path(
         r'^api/solicitacoes-acesso/?$',
         SolicitacoesAcessoView.as_view(),
