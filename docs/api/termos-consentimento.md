@@ -142,6 +142,47 @@ novo_termo = atualizar_clausula(
     obrigatoria=True,
 )
 ```
+---
+
+## 4.5. Histórico de Consentimento do Usuário
+
+O registro do consentimento dos usuários segue o padrão **Event Sourcing (Append-Only)**, garantindo que o histórico nunca seja perdido ou sobrescrito (conforme exigência da LGPD). A tabela `consentimento` armazena apenas *eventos* (aceite ou revogação) associados ao UUID do usuário (extraído do Keycloak).
+
+### 4.5.1. Tabela `consentimento`
+
+| Coluna | Tipo | Papel |
+|---|---|---|
+| `id_consentimento` | `BIGSERIAL` (PK) | Identificador do evento |
+| `timestamp_consentimento` | `TIMESTAMP` | Momento exato da ação |
+| `id_clausula` | `BIGINT` (FK) | Referência à cláusula do termo |
+| `id_usuario` | `VARCHAR` | UUID do Keycloak (não há tabela de usuário no Django) |
+| `acordo` | `BOOLEAN` | `True` (consentiu) ou `False` (revogou) |
+
+> **Regra de Ouro:** Nunca execute `UPDATE` ou `DELETE` nesta tabela. Para saber o estado atual de um usuário, busque o evento de maior `timestamp_consentimento` para cada par `(id_usuario, id_clausula)`.
+
+### 4.5.2. Exemplo de uso da API Interna (Camada de Serviço)
+
+A manipulação é feita via `api.services.consentimento.ConsentimentoService`.
+
+```python
+from api.services.consentimento import ConsentimentoService
+
+user_id = "uuid-do-keycloak-do-usuario"
+
+# 1. Registrar que o usuário consentiu com as cláusulas (passando os IDs)
+ConsentimentoService.consentir_clausulas(user_id, [id_clausula_1, id_clausula_2])
+
+# 2. Validar se o usuário atualmente consente com uma funcionalidade (por requisito)
+# Útil para bloquear/liberar features no sistema.
+tem_consentimento = ConsentimentoService.verificar_consentimento(user_id, 'coleta_uso_email')
+
+# 3. Buscar o status atual de todas as cláusulas do termo em vigor
+status = ConsentimentoService.obter_consentimentos_usuario(user_id)
+# Retorna: [{'clausula': <Clausula>, 'requisito': '...', 'acordo': True/False/None}, ...]
+
+# 4. Revogar o consentimento (cria um novo evento, preservando o aceite anterior)
+ConsentimentoService.rescindir_consentimento(user_id, [id_clausula_1])
+```
 
 ---
 

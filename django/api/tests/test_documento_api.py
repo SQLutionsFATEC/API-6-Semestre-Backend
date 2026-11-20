@@ -118,12 +118,13 @@ class DocumentoApiTest(TestCase):
 
         self.api_client = APIClient()
         User = get_user_model()
+        
         user_mock = User.objects.create_user(
             username='test_user_mock',
             password='senha123',
         )
         user_mock.setor = 'TI'
-        user_mock.nivel = 'Operador'  
+        user_mock.nivel = 'Basico' 
         self.api_client.force_authenticate(user=user_mock)
 
         self.client = self.api_client
@@ -162,6 +163,11 @@ class DocumentoApiTest(TestCase):
             data_atualizacao=data_anterior,
         )
 
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_patch', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         response = self.client.patch(
             f'/api/documentos/{self.documento.id_documento}/',
             data={'nome': 'Manual atualizado.pdf'},
@@ -175,6 +181,11 @@ class DocumentoApiTest(TestCase):
         self.assertGreater(self.documento.data_atualizacao, data_anterior)
 
     def test_rejeita_atualizacao_do_arquivo(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_patch2', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         response = self.client.patch(
             f'/api/documentos/{self.documento.id_documento}/',
             data={'data': 'documentos/outro.pdf'},
@@ -185,6 +196,11 @@ class DocumentoApiTest(TestCase):
         self.assertIn('data', response.json())
 
     def test_rejeita_atualizacao_da_data_de_atualizacao(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_patch3', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         response = self.client.patch(
             f'/api/documentos/{self.documento.id_documento}/',
             data={'data_atualizacao': '2026-01-01T00:00:00Z'},
@@ -195,6 +211,11 @@ class DocumentoApiTest(TestCase):
         self.assertIn('data_atualizacao', response.json())
 
     def test_atualiza_setor_e_nivel_com_valores_validos(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_patch4', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         response = self.client.patch(
             f'/api/documentos/{self.documento.id_documento}/',
             data={'setor': 'normativo', 'nivel': 'militar'},
@@ -207,6 +228,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(self.documento.nivel, 'militar')
 
     def test_rejeita_setor_e_nivel_inexistentes(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_patch5', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         response = self.client.patch(
             f'/api/documentos/{self.documento.id_documento}/',
             data={'setor': 'inexistente', 'nivel': 'inexistente'},
@@ -222,6 +248,11 @@ class DocumentoApiTest(TestCase):
         etiqueta3 = Etiqueta.objects.create(nome='Revisar')
         self.documento.etiquetas.add(self.etiqueta, etiqueta2)
 
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_patch6', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         response = self.client.patch(
             f'/api/documentos/{self.documento.id_documento}/',
             data={'etiquetas': [etiqueta2.id_etiqueta, etiqueta3.id_etiqueta]},
@@ -235,6 +266,11 @@ class DocumentoApiTest(TestCase):
         )
 
     def test_rejeita_etiqueta_inexistente(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_patch7', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         response = self.client.patch(
             f'/api/documentos/{self.documento.id_documento}/',
             data={'etiquetas': [999999]},
@@ -324,6 +360,11 @@ class DocumentoApiTest(TestCase):
 
     # Testes para POST /api/documentos/etiqueta/
     def test_vincula_etiqueta_ao_documento_com_sucesso(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_vincular', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         payload = {
             'id_documento': self.documento.id_documento,
             'id_etiqueta': self.etiqueta.id_etiqueta
@@ -335,6 +376,11 @@ class DocumentoApiTest(TestCase):
         self.assertTrue(self.documento.etiquetas.filter(id_etiqueta=self.etiqueta.id_etiqueta).exists())
 
     def test_retorna_400_ao_vincular_etiqueta_sem_enviar_dados(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_vincular2', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         payload = {}
         response = self.client.post('/api/documentos/etiqueta/', data=payload, content_type='application/json')
         
@@ -342,6 +388,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(response.json()['erro'], 'Os campos id_documento e id_etiqueta são obrigatórios.')
 
     def test_retorna_404_ao_vincular_com_documento_inexistente(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_vincular3', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         payload = {
             'id_documento': 999999,
             'id_etiqueta': self.etiqueta.id_etiqueta
@@ -352,6 +403,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(response.json()['erro'], 'Documento não encontrado.')
 
     def test_retorna_404_ao_vincular_com_etiqueta_inexistente(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_vincular4', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         payload = {
             'id_documento': self.documento.id_documento,
             'id_etiqueta': 999999
@@ -362,6 +418,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(response.json()['erro'], 'Etiqueta não encontrada.')
 
     def test_rejeita_upload_de_formato_nao_permitido(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_upload', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         from django.core.files.uploadedfile import SimpleUploadedFile
         arquivo_png = SimpleUploadedFile("imagem.png", b"conteudo_fake", content_type="image/png")
         payload = {
@@ -384,6 +445,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(self.documento.data_criacao, data_criacao)
 
     def test_criar_documento_com_sucesso_via_post(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_create', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         from django.core.files.uploadedfile import SimpleUploadedFile
         import pymupdf
 
@@ -418,6 +484,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(documento.setor, 'TI')
 
     def test_criar_documento_sem_setor_classifica_e_persiste_categoria(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_create2', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         from django.core.files.uploadedfile import SimpleUploadedFile
         import pymupdf
 
@@ -450,6 +521,11 @@ class DocumentoApiTest(TestCase):
         self.assertFalse(documento.etiquetas.filter(nome='urgente').exists())
 
     def test_criar_documento_sem_classificacao_persiste_nao_classificado(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_create3', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         from django.core.files.uploadedfile import SimpleUploadedFile
         import pymupdf
 
@@ -479,6 +555,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(documento.setor, 'NAO_CLASSIFICADO')
 
     def test_criar_documento_docx_informa_tipo_automaticamente(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_create4', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         from io import BytesIO
         from django.core.files.uploadedfile import SimpleUploadedFile
         from docx import Document as WordDocument
@@ -513,6 +594,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(documento.tipo_arquivo, 'docx')
 
     def test_criar_documento_rejeita_nome_ou_nivel_ausente(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_create5', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         for campo in ('nome', 'nivel'):
@@ -531,6 +617,11 @@ class DocumentoApiTest(TestCase):
             self.assertIn(campo, response.json())
 
     def test_criar_documento_com_setor_informado_usa_classificacao_automatica(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_create6', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         from django.core.files.uploadedfile import SimpleUploadedFile
         import pymupdf
 
@@ -565,6 +656,11 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(documento.setor, 'Normativo')
 
     def test_criar_documento_retorna_400_quando_processamento_falha(self):
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_create7', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
         from django.core.files.uploadedfile import SimpleUploadedFile
 
         payload = {
@@ -635,6 +731,54 @@ class DocumentoApiTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         buscar_contexto.assert_not_called()
+
+    # --- NOVOS TESTES ADICIONADOS PARA A TASK 103 ---
+    def test_pesquisa_documentos_operador_retorna_403(self):
+        """Operador NÃO pode usar a busca por contexto semântico."""
+        User = get_user_model()
+        operador = User.objects.create_user(username='op_ctx_403', password='123')
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
+        with patch(
+            'api.views.documento_api.VectorService.buscar_contexto'
+        ) as buscar_contexto:
+            response = self.client.get(
+                '/api/documentos/',
+                {'contexto': 'teste'},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['erro'], 'Operadores não podem utilizar a busca por contexto semântico.')
+        buscar_contexto.assert_not_called()
+
+    def test_pesquisa_documentos_usuario_comum_permite_contexto(self):
+        """Usuário comum (não-operador) PODE usar a busca por contexto semântico."""
+        User = get_user_model()
+        usuario_comum = User.objects.create_user(
+            username='usuario_comum_ctx',
+            password='senha123',
+        )
+        usuario_comum.nivel = 'Basico'
+        usuario_comum.setor = 'TI'
+        
+        self.client.force_authenticate(user=usuario_comum)
+
+        resultados = [
+            {'id_chunk': 1, 'id_documento_id': self.documento.id_documento}
+        ]
+        with patch(
+            'api.views.documento_api.VectorService.buscar_contexto',
+            return_value=resultados,
+        ) as buscar_contexto:
+            response = self.client.get(
+                '/api/documentos/',
+                {'contexto': 'teste'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        buscar_contexto.assert_called_once()
+    # ------------------------------------------------
 
     def test_cria_documento_chunk_com_embedding_valido(self):
         from api.models import DocumentoChunk
@@ -773,11 +917,6 @@ class DocumentoAuthorizationTest(TestCase):
         )
 
 #LISTAGEM (GET /api/documentos/
-    # def test_listagem_sem_autenticacao_retorna_401(self):
-    #     """Sem token/autenticação, deve retornar 401."""
-    #     response = self.client.get('/api/documentos/')
-    #     self.assertEqual(response.status_code, 401)
-
     def test_listagem_nao_filtra_por_permissao(self):
         """A lista deve conter TODOS os documentos, independente de permissão."""
         self.client.force_authenticate(user=self.user_basico_ti)
@@ -800,17 +939,6 @@ class DocumentoAuthorizationTest(TestCase):
         # TI/Basico NÃO acessa Tecnico/Basico (setor diferente) → False
         self.assertFalse(docs['Doc Técnico Básico.pdf']['acesso_permitido'])
 
-    # def test_listagem_usuario_sem_dados_usa_mock_padrao(self):
-    #     """Usuário sem setor/nivel → assume mock padrão: Tecnico / Basico."""
-    #     self.client.force_authenticate(user=self.user_sem_dados)
-    #     response = self.client.get('/api/documentos/')
-
-    #     docs = {d['nome']: d for d in response.json()['results']}
-
-    #     # Com o mock padrão (Tecnico/Basico), só o doc Tecnico/Basico é permitido
-    #     self.assertTrue(docs['Doc Técnico Básico.pdf']['acesso_permitido'])
-    #     self.assertFalse(docs['Doc TI Básico.pdf']['acesso_permitido'])
-
     def test_listagem_operador_tem_acesso_total(self):
         """Operador deve ter acesso_permitido=True em TODOS os documentos."""
         self.client.force_authenticate(user=self.user_operador_rh)
@@ -820,12 +948,6 @@ class DocumentoAuthorizationTest(TestCase):
             self.assertTrue(doc['acesso_permitido'])
 
     #DETALHE (GET /api/documentos/{id}/
-    # def test_detalhe_sem_autenticacao_retorna_401(self):
-    #     response = self.client.get(
-    #         f'/api/documentos/{self.doc_ti_basico.id_documento}/'
-    #     )
-    #     self.assertEqual(response.status_code, 401)
-
     def test_detalhe_mesmo_setor_nivel_igual_retorna_200(self):
         """TI/Basico acessa TI/Basico → 200."""
         self.client.force_authenticate(user=self.user_basico_ti)
@@ -869,19 +991,3 @@ class DocumentoAuthorizationTest(TestCase):
             f'/api/documentos/{self.doc_ti_militar.id_documento}/'
         )
         self.assertEqual(response.status_code, 200)
-
-    # def test_detalhe_usuario_sem_dados_usa_mock_padrao(self):
-    #     """Usuário sem setor/nivel → assume Tecnico/Basico (mock padrão)."""
-    #     self.client.force_authenticate(user=self.user_sem_dados)
-
-    #     # Acessa Tecnico/Basico → 200 (mock bate com o documento)
-    #     response_ok = self.client.get(
-    #         f'/api/documentos/{self.doc_tecnico_basico.id_documento}/'
-    #     )
-    #     self.assertEqual(response_ok.status_code, 200)
-
-    #     # Acessa TI/Basico → 403 (setor diferente do mock)
-    #     response_403 = self.client.get(
-    #         f'/api/documentos/{self.doc_ti_basico.id_documento}/'
-    #     )
-    #     self.assertEqual(response_403.status_code, 403)
