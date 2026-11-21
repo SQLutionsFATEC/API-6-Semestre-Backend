@@ -20,3 +20,20 @@ services:
       - 0.0.0.0
       - --port
       - "8080"
+
+  llama-cpp-chat:
+    image: ${LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+    gpus: all
+    command:
+      - --model
+      - /models/${LLAMA_CPP_CHAT_MODEL_FILE:-qwen2.5-0.5b-instruct-q4_k_m.gguf}
+      - --n-gpu-layers
+      - "${LLAMA_CPP_GPU_LAYERS:-99}"
+      - --ctx-size
+      - "${LLAMA_CPP_CHAT_CTX_SIZE:-4096}"
+      - --threads
+      - "${LLAMA_CPP_THREADS:-8}"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"

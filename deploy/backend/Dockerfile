@@ -74,5 +74,5 @@ EXPOSE 8000
 # Script de inicialização
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Executa o projeto 
-CMD ["gunicorn", "api.wsgi:application", "--bind", "0.0.0.0:8000"]
+# Executa o projeto (timeout 0 para evitar timeout em requisições longas como /api/chat RAG)
+CMD ["gunicorn", "api.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "0"]

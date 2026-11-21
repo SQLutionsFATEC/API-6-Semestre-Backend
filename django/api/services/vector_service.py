@@ -479,9 +479,42 @@ class VectorService:
 
         return total_salvo
 
+    @staticmethod
+    def _eh_chunk_sumario(texto: str) -> bool:
+        if not texto:
+            return True
+        pontos_longos = len(re.findall(r'\.{5,}', texto))
+        if pontos_longos >= 2:
+            return True
+        return 'table of contents' in texto.lower() and pontos_longos >= 1
+
     @classmethod
-    def buscar_contexto(cls, pergunta: str, categoria: str | None = None, limite: int = 5):
+    def _pontuar_chunk_relevancia(cls, chunk: dict, palavras: List[str]) -> float:
+        conteudo = (chunk.get('conteudo') or '').lower()
+        nome_doc = (chunk.get('id_documento__nome') or '').lower()
+
+        score = 0.0
+        for p in palavras:
+            if p in conteudo:
+                score += 10.0 + min(conteudo.count(p), 5) * 1.5
+            if p in nome_doc:
+                score += 5.0
+
+        if cls._eh_chunk_sumario(conteudo):
+            score -= 25.0
+
+        return score
+
+    @classmethod
+    def buscar_contexto(
+        cls,
+        pergunta: str,
+        categoria: str | None = None,
+        limite: int = 5,
+        ids_documentos: List[int] | None = None,
+    ):
         from api.models import DocumentoChunk
+        from django.db.models import Q
 
         pergunta = (pergunta or '').strip()
         if not pergunta:
@@ -489,29 +522,73 @@ class VectorService:
 
         queryset = DocumentoChunk.objects.select_related('id_documento')
 
+        if ids_documentos is not None:
+            queryset = queryset.filter(id_documento_id__in=ids_documentos)
+
         if categoria:
             queryset = queryset.filter(id_documento__etiquetas__nome__icontains=categoria)
 
         queryset = queryset.distinct()
 
+        palavras = [p for p in pergunta.lower().split() if len(p) >= 2]
+        q_texto = Q(conteudo__icontains=pergunta) | Q(id_documento__nome__icontains=pergunta)
+        for palavra in palavras:
+            q_texto |= Q(conteudo__icontains=palavra) | Q(id_documento__nome__icontains=palavra)
+
+        campos = (
+            'id_chunk',
+            'pagina',
+            'conteudo',
+            'id_documento_id',
+            'id_documento__nome',
+        )
+
+        resultados_vetoriais: List[dict] = []
         try:
             from pgvector.django import CosineDistance
-            from django.db.models import Q
 
             embedding = cls.gerar_embedding(pergunta, prefixo='search_query')
             distancia = CosineDistance('embedding', embedding)
-            queryset = queryset.annotate(distancia=distancia).filter(
-                Q(conteudo__icontains=pergunta) | Q(distancia__lt=0.72)
-            ).order_by('distancia')[:limite]
-        except Exception:
-            queryset = queryset.filter(conteudo__icontains=pergunta).order_by('id_chunk')[:limite]
-
-        return list(
-            queryset.values(
-                'id_chunk',
-                'pagina',
-                'conteudo',
-                'id_documento_id',
-                'id_documento__nome',
+            queryset_vetorial = (
+                queryset.filter(embedding__isnull=False)
+                .annotate(distancia=distancia)
+                .filter(q_texto | Q(distancia__lt=0.72))
+                .order_by('distancia')[:limite]
             )
+            resultados_vetoriais = list(queryset_vetorial.values(*campos))
+        except Exception:
+            resultados_vetoriais = []
+
+        chunks_textuais = list(
+            queryset.filter(q_texto)
+            .order_by('id_chunk')[: max(limite * 40, 200)]
+            .values(*campos)
         )
+
+        # Combina resultados textuais e vetoriais; se houver correspondências textuais
+        # para as palavras buscadas, prioriza os chunks com maior pontuação de relevância
+        # (ex.: parágrafos que contêm múltiplos substantivos da busca e não são sumário).
+        if chunks_textuais and palavras:
+            ids_textuais = {c['id_chunk'] for c in chunks_textuais}
+            for rv in resultados_vetoriais:
+                if rv['id_chunk'] not in ids_textuais and cls._pontuar_chunk_relevancia(rv, palavras) > 0:
+                    chunks_textuais.append(rv)
+                    ids_textuais.add(rv['id_chunk'])
+
+            chunks_textuais.sort(
+                key=lambda c: cls._pontuar_chunk_relevancia(c, palavras),
+                reverse=True,
+            )
+
+            resultados: List[dict] = []
+            contagem_por_doc: dict[int, int] = {}
+            for chunk in chunks_textuais:
+                doc_id = chunk['id_documento_id']
+                if contagem_por_doc.get(doc_id, 0) < 3:
+                    resultados.append(chunk)
+                    contagem_por_doc[doc_id] = contagem_por_doc.get(doc_id, 0) + 1
+                    if len(resultados) >= limite:
+                        break
+            return resultados[:limite]
+
+        return resultados_vetoriais[:limite]

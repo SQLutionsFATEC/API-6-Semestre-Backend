@@ -30,6 +30,7 @@ from api.views.solicitacoes_acesso_api import (
     SolicitacaoAcessoDetalheView,
     SolicitacoesAcessoView,
 )
+from api.views.chat_api import ChatView
 from api.views.consentimento_api import ConsentimentoView
 
 router = DefaultRouter()
@@ -41,6 +42,7 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/perfil/', PerfilView.as_view(), name='perfil'),
     path('api/vazamentos/', VazamentoView.as_view(), name='vazamentos'),
+    re_path(r'^api/chat/?$', ChatView.as_view(), name='chat'),
 
     # --- Consentimento ---
     re_path(
