@@ -269,6 +269,14 @@ SolicitacaoAcesso.objects.filter(
 ).exists()
 ```
 
+Essa verificação é aplicada às rotas de documentos: a regra de acesso é
+`(Setor Usuário == Setor Doc E Nível Usuário >= Nível Doc) OU Nível Usuário ==
+Operador OU solicitação de acesso aprovada`. Em `GET /api/documentos/`, o campo
+`acesso_permitido` retorna `true` quando a solicitação do usuário autenticado
+para aquele documento está aprovada; em `GET /api/documentos/{id_documento}/`,
+o arquivo (`data`) também é retornado nesse caso. A implementação está em
+`verificar_acesso_documento` (`api/services/authorization_service.py`).
+
 ## 10. Convenções do projeto
 
 - Mantenha as rotas sob o prefixo `/api/`.
