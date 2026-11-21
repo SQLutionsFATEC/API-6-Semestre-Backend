@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from rest_framework import status
@@ -92,28 +92,16 @@ def test_chat_payload_invalido_retorna_400():
 
 
 def test_chat_extrai_substantivos_com_spacy():
-    token_noun = MagicMock(pos_='NOUN', text='safety', lemma_='safety', is_alpha=True)
-    token_propn = MagicMock(pos_='PROPN', text='NASA', lemma_='nasa', is_alpha=True)
-    token_stop = MagicMock(pos_='NOUN', text='documento', lemma_='documento', is_alpha=True)
+    with patch(
+        'api.services.chat_service.TaggingService.nlp_texto',
+        return_value='safety specification system',
+    ) as mock_nlp_texto:
+        termo = ChatService.extrair_substantivos_mensagem(
+            'What is the safety specification for the system?'
+        )
 
-    with patch('api.services.chat_service.TaggingService.get_nlp'), patch.object(
-        ChatService,
-        'extrair_substantivos_mensagem',
-        wraps=ChatService.extrair_substantivos_mensagem,
-    ):
-        from api.services.tagging_service import TaggingService
-
-        with patch.object(
-            TaggingService,
-            '_nlp',
-            create=True,
-            return_value=[token_noun, token_propn, token_stop],
-        ):
-            termo = ChatService.extrair_substantivos_mensagem(
-                'Eu preciso de um documento da NASA sobre safety?'
-            )
-
-    assert termo == 'safety nasa'
+    assert termo == 'safety specification system'
+    mock_nlp_texto.assert_called_once_with('what is the safety specification for the system?')
 
 
 def test_chat_filtra_apenas_documentos_que_usuario_tem_acesso():
@@ -160,9 +148,9 @@ def test_chat_filtra_apenas_documentos_que_usuario_tem_acesso():
     with patch.object(
         ChatService,
         'extrair_substantivos_mensagem',
-        return_value='radar specification',
+        return_value='radar',
     ), patch(
-        'api.services.chat_service.VectorService.gerar_embedding',
+        'api.services.vector_service.VectorService.gerar_embedding',
         return_value=[0.1] * 256,
     ):
         docs_encontrados = ChatService.buscar_documentos_relevantes(
@@ -192,9 +180,9 @@ def test_chat_limita_aos_tres_documentos_mais_relevantes_no_rag():
     with patch.object(
         ChatService,
         'extrair_substantivos_mensagem',
-        return_value='engine maintenance procedure',
+        return_value='engine',
     ), patch(
-        'api.services.chat_service.VectorService.gerar_embedding',
+        'api.services.vector_service.VectorService.gerar_embedding',
         return_value=[0.1] * 256,
     ), patch(
         'api.services.chat_service.CHAT_HTTP_SESSION.post'
@@ -240,9 +228,9 @@ def test_chat_fallback_quando_llm_indisponivel():
     with patch.object(
         ChatService,
         'extrair_substantivos_mensagem',
-        return_value='segurança proteção',
+        return_value='segurança',
     ), patch(
-        'api.services.chat_service.VectorService.gerar_embedding',
+        'api.services.vector_service.VectorService.gerar_embedding',
         side_effect=RuntimeError('llama.cpp offline'),
     ), patch(
         'api.services.chat_service.CHAT_HTTP_SESSION.post',

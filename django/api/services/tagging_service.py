@@ -46,6 +46,8 @@ class TaggingService:
         nlp_start = time.time()
         if not texto:
             return ""
+        if cls._nlp is None:
+            cls.get_nlp()
 
         substantivos = []
         TAMANHO_CHUNK = settings.NLP_CHUNK_SIZE

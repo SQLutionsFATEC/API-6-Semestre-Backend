@@ -1,6 +1,6 @@
 # Documentação e Guia de Utilização — Rota de Conversa com o Chat (`/api/chat`)
 
-Este documento descreve o funcionamento, a arquitetura e como utilizar a rota `/api/chat` para conversação contextualizada sobre documentos utilizando **NLP (spaCy)** e **RAG (Retrieval-Augmented Generation)**.
+Este documento descreve o funcionamento, a arquitetura e como utilizar a rota `/api/chat` para conversação contextualizada sobre documentos utilizando **NLP (spaCy)**, o **mecanismo de busca por contexto do sistema** e **RAG (Retrieval-Augmented Generation)** via **`llama.cpp`**.
 
 ---
 
@@ -18,16 +18,17 @@ A rota `POST /api/chat` permite que um usuário autenticado converse com o assis
      - Possui uma solicitação de acesso especial aprovada para aquele usuário na tabela `solicitacao_acesso` (`SolicitacaoAcesso` com `approved=True`).
 
 3. **Extração de Substantivos via NLP (`spaCy`)**:
-   - A partir da mensagem atual do usuário (último item da lista `context`), o serviço `ChatService.extrair_substantivos_mensagem` utiliza o modelo do `spaCy` (`TaggingService.nlp_texto`) para extrair e lematizar os substantivos relevantes.
-   - Caso a frase não produza substantivos filtráveis pelo pipeline (ex.: siglas curtas), o texto original limpo é utilizado como fallback seguro.
+   - A partir da mensagem atual do usuário (último item da lista `context`), o serviço `ChatService.extrair_substantivos_mensagem` chama o método `TaggingService.nlp_texto` (que utiliza o `spaCy` já configurado no projeto) para extrair os substantivos relevantes da mensagem.
 
-4. **Busca Semântica por Contexto (Top 3 Documentos Mais Relevantes)**:
-   - Utilizando os termos extraídos da mensagem atual, o serviço consulta a base vetorial (`DocumentoChunk` via `pgvector` e `VectorService.gerar_embedding`), restrita **exclusivamente** aos IDs de documentos acessíveis pelo usuário.
-   - Os trechos mais próximos semanticamente são agrupados por documento e limitados aos **3 documentos mais relevantes** à mensagem atual.
+4. **Busca por Contexto Reutilizando o Mecanismo Interno da Rota de Documentos (Top 3 Documentos)**:
+   - O `ChatService.buscar_documentos_relevantes` utiliza o mecanismo de busca por contexto exposto em `DocumentoViewSet.filtrar_por_contexto` (em `django/api/views/documento_api.py`), que por sua vez consulta `VectorService.buscar_contexto` filtrando estritamente pelos IDs de documentos acessíveis ao usuário atual.
+   - Retorna apenas os **3 documentos mais relevantes** à mensagem atual e seus respectivos trechos.
 
-5. **Geração de Resposta em Linguagem Natural (Método RAG) sem Timeout**:
-   - O método `ChatService.gerar_resposta_rag` monta o prompt do sistema com o conteúdo dos **três documentos mais relevantes** e todo o histórico da conversa (`context`), alternando os papéis `user` e `assistant`.
-   - A chamada ao servidor de inferência (`llama.cpp` compatível com `/v1/chat/completions`) e o servidor Gunicorn (`--timeout 0`) são configurados sem timeout restritivo para evitar que requisições mais longas sofram queda por tempo limite.
+5. **Geração de Resposta em Linguagem Natural (Método RAG via `llama.cpp`) sem Timeout**:
+   - O container `llama-cpp-model` baixa automaticamente dois modelos `.gguf` leves para o volume compartilhado `llamacppmodels`:
+     - **`nomic-embed-text-v1.5.Q4_K_M.gguf`**: Usado pelo container `llama-cpp` exclusivamente para gerar os embeddings (vetores matemáticos de 256 dimensões).
+     - **`qwen2.5-0.5b-instruct-q4_k_m.gguf`** (~390 MB): Modelo de linguagem super leve (0.5B parâmetros) carregado pelo serviço `llama-cpp-chat` para rodar rapidamente em CPU em qualquer máquina da equipe.
+   - O método `ChatService.gerar_resposta_rag` envia os **três documentos mais relevantes** e o histórico da conversa (`context`) para `http://llama-cpp-chat:8080/v1/chat/completions` sem timeout restritivo (`timeout=None` e Gunicorn com `--timeout 0`).
 
 ---
 
@@ -39,8 +40,6 @@ A rota `POST /api/chat` permite que um usuário autenticado converse com o assis
 - **Documentação Swagger UI**: `http://localhost:8000/api/docs/`
 
 ### Estrutura do Body da Requisição (`application/json`)
-
-O corpo da requisição deve conter a chave `context` com uma lista de strings representando o histórico da conversa, onde o último elemento é a mensagem atual do usuário:
 
 ```json
 {
@@ -56,107 +55,43 @@ O corpo da requisição deve conter a chave `context` com uma lista de strings r
 
 ```json
 {
-  "response": "Com base nos manuais técnicos disponíveis para o seu perfil, o procedimento de manutenção exige...",
+  "response": "Resposta em linguagem natural gerada pelo modelo no llama.cpp com base nos 3 documentos mais relevantes...",
   "documents": [
     {
-      "id_documento": 12,
-      "nome": "Manual_Manutencao.pdf",
-      "setor": "Tecnico",
-      "nivel": "Basico",
-      "pagina": 4,
-      "conteudo": "Documento: Manual_Manutencao.pdf.\n# Capítulo 2..."
+      "id_documento": 4,
+      "nome": "AC 20-37e.pdf",
+      "setor": "juridico",
+      "nivel": "Militar",
+      "pagina": 8,
+      "conteudo": "Documento: AC_20-37e.pdf.\n(1) Surface Corrosion..."
     }
   ]
 }
 ```
 
-### Códigos de Status HTTP
-
-| Código | Descrição |
-|---|---|
-| `200 OK` | Resposta gerada com sucesso em linguagem natural via RAG e lista dos até 3 documentos utilizados. |
-| `400 Bad Request` | Payload inválido (ex.: campo `context` ausente, lista vazia ou elementos que não sejam strings válidas). |
-| `401 Unauthorized` | Usuário não autenticado ou token Bearer ausente/inválido (`Unauthenticated`). |
-| `405 Method Not Allowed` | Método HTTP diferente de `POST`. |
-
 ---
 
-## 3. Exemplos de Como Utilizar
+## 3. Como Subir e Utilizar
 
-### Exemplo 1: Via `cURL`
-
-```bash
-curl -X POST http://localhost:8000/api/chat \
-  -H "Authorization: Bearer SEU_TOKEN_KEYCLOAK" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "context": [
-      "Hello, I need information from the maintenance manuals.",
-      "Hello! Which topic would you like to search?",
-      "What causes surface corrosion and pitting on polished blades?"
-    ]
-  }'
-```
-
-### Exemplo 2: Via `JavaScript / Fetch` (Frontend)
-
-```javascript
-async function enviarMensagemChat(historicoContexto, accessToken) {
-  const response = await fetch("http://localhost:8000/api/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      context: historicoContexto,
-    }),
-  });
-
-  if (response.status === 401) {
-    throw new Error("Usuário não autenticado (401 Unauthenticated)");
-  }
-
-  if (!response.ok) {
-    const erro = await response.json();
-    throw new Error(JSON.stringify(erro));
-  }
-
-  return await response.json();
-}
-```
-
-### Exemplo 3: Via Swagger UI
-
-1. Suba o ambiente com Docker Compose:
+1. **Subir os containers com Docker Compose**:
    ```bash
    cd deploy
    docker compose up -d --build
    ```
-2. Acesse `http://localhost:8000/api/docs/`.
-3. Clique no botão **Authorize** no topo da página e informe o token JWT Bearer obtido no Keycloak.
-4. Localize o endpoint **`POST /api/chat`**, clique em **Try it out**, preencha o JSON com `{"context": ["mensagem 1", "resposta do sistema", "resposta do usuario"]}` e clique em **Execute**.
+   *(O serviço `llama-cpp-model` baixará automaticamente o `nomic-embed-text-v1.5.Q4_K_M.gguf` para embeddings e o `qwen2.5-0.5b-instruct-q4_k_m.gguf` para o chat RAG, iniciando o `llama-cpp` e o `llama-cpp-chat`).*
+
+2. **Testar via Swagger UI**:
+   - Acesse `http://localhost:8000/api/docs/`.
+   - Clique em **Authorize** e insira o token Bearer do Keycloak.
+   - Execute o endpoint **`POST /api/chat`** enviando o campo `context`.
 
 ---
 
-## 4. Variáveis de Ambiente Opcionais (Configuração do RAG)
-
-O serviço utiliza por padrão a infraestrutura do `llama.cpp` já configurada no projeto, podendo ser customizado via variáveis de ambiente:
+## 4. Variáveis de Ambiente (Configuração do Chat RAG no `llama.cpp`)
 
 | Variável | Valor Padrão | Descrição |
 |---|---|---|
-| `LLAMA_CPP_CHAT_HOST` | Valor de `LLAMA_CPP_HOST` (`http://llama-cpp:8080`) | Host do servidor LLM para geração de chat. |
-| `LLAMA_CPP_CHAT_ENDPOINT` | `/v1/chat/completions` | Endpoint compatível com OpenAI Chat Completions. |
-| `LLAMA_CPP_CHAT_MODEL` | `gemma-4-E4B-it` | Nome do modelo utilizado na geração RAG. |
-| `LLAMA_CPP_CHAT_TIMEOUT` | `None` (sem timeout) | Tempo limite em segundos (vazio/`None` desativa o timeout para evitar quedas em gerações longas). |
-
----
-
-## 5. Arquivos Criados e Atualizados no Projeto
-
-- **`django/api/services/chat_service.py`**: Implementação do `ChatService` (extração de substantivos via `spaCy`, validação de acesso por usuário + `SolicitacaoAcesso`, busca contextual dos 3 documentos mais relevantes e método RAG sem timeout).
-- **`django/api/serializers/chat_serializer.py`**: Serializers de entrada (`ChatRequestSerializer`) e saída (`ChatResponseSerializer`, `ChatDocumentoRelevanteSerializer`).
-- **`django/api/views/chat_api.py`**: View `ChatView` (`POST /api/chat`) com autenticação obrigatória e documentação `@extend_schema` do `drf-spectacular` (Swagger).
-- **`django/api/urls.py`**: Registro da rota `/api/chat`.
-- **`django/api/tests_unit/test_chat_api.py`**: Testes automatizados validando autenticação (`401`), restrição ao método `POST` (`405`), validação de body (`400`), extração de substantivos com `spaCy`, filtragem estrita por acesso do usuário, limite de 3 documentos no RAG e ausência de timeout.
-- **`docs/api/manual-documentacao-rotas.md`**: Atualizado com a seção da rota `/api/chat`.
+| `LLAMA_CPP_CHAT_HOST` | `http://llama-cpp-chat:8080` | Host do container `llama.cpp` responsável pelo chat RAG. |
+| `LLAMA_CPP_CHAT_MODEL_FILE` | `qwen2.5-0.5b-instruct-q4_k_m.gguf` | Arquivo `.gguf` leve baixado pelo `llama-cpp-model` e carregado no `llama-cpp-chat`. |
+| `LLAMA_CPP_CHAT_MODEL_URL` | `https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf` | URL de download automático do modelo `.gguf` leve. |
+| `LLAMA_CPP_CHAT_TIMEOUT` | `None` (sem timeout) | Tempo limite em segundos (`None` desativa o timeout para evitar quedas em gerações longas). |
