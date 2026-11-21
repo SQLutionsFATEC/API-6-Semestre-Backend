@@ -4,9 +4,12 @@ import re
 import requests
 from typing import Any, Dict, List
 
+from django.db.models import Case, IntegerField, When
+
 from api.models import Documento, SolicitacaoAcesso
 from api.services.authorization_service import verificar_acesso
 from api.services.tagging_service import TaggingService
+from api.services.vector_service import VectorService
 
 logger = logging.getLogger(__name__)
 
@@ -186,14 +189,10 @@ class ChatService:
             len(ids_acessiveis),
         )
 
-        from api.views.documento_api import DocumentoViewSet
-
-        queryset_base = Documento.objects.filter(id_documento__in=ids_acessiveis)
-        queryset_ordenado, chunks = DocumentoViewSet.filtrar_por_contexto(
-            queryset=queryset_base,
-            contexto=termo_busca,
+        chunks = VectorService.buscar_contexto(
+            termo_busca.lower(),
             limite=limite_documentos * 5,
-            ids_documentos_permitidos=ids_acessiveis,
+            ids_documentos=ids_acessiveis,
         )
         chunks = [c for c in chunks if cls._chunk_possui_termo_relevante(c, palavras)]
 
@@ -203,11 +202,10 @@ class ChatService:
                 if p not in STOPWORDS_BUSCA
             ]
             if palavras_msg:
-                queryset_ordenado, chunks_fallback = DocumentoViewSet.filtrar_por_contexto(
-                    queryset=queryset_base,
-                    contexto=' '.join(palavras_msg),
+                chunks_fallback = VectorService.buscar_contexto(
+                    ' '.join(palavras_msg),
                     limite=limite_documentos * 5,
-                    ids_documentos_permitidos=ids_acessiveis,
+                    ids_documentos=ids_acessiveis,
                 )
                 chunks = [
                     c for c in chunks_fallback
@@ -226,10 +224,19 @@ class ChatService:
                 chunks_por_doc[doc_id].append(chunk)
 
         ids_docs_validos = list(chunks_por_doc.keys())[:limite_documentos]
-        docs_map = {
-            doc.id_documento: doc
-            for doc in queryset_ordenado.filter(id_documento__in=ids_docs_validos)
-        }
+        ordem_contexto = Case(
+            *[
+                When(id_documento=id_doc, then=pos)
+                for pos, id_doc in enumerate(ids_docs_validos)
+            ],
+            default=len(ids_docs_validos),
+            output_field=IntegerField(),
+        )
+        queryset_ordenado = (
+            Documento.objects.filter(id_documento__in=ids_docs_validos)
+            .order_by(ordem_contexto, 'id_documento')
+        )
+        docs_map = {doc.id_documento: doc for doc in queryset_ordenado}
 
         resultado: List[Dict[str, Any]] = []
         for doc_id in ids_docs_validos:
