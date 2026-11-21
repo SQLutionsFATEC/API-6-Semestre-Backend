@@ -543,7 +543,7 @@ class VectorService:
             'id_documento__nome',
         )
 
-        resultados: List[dict] = []
+        resultados_vetoriais: List[dict] = []
         try:
             from pgvector.django import CosineDistance
 
@@ -555,34 +555,40 @@ class VectorService:
                 .filter(q_texto | Q(distancia__lt=0.72))
                 .order_by('distancia')[:limite]
             )
-            resultados = list(queryset_vetorial.values(*campos))
+            resultados_vetoriais = list(queryset_vetorial.values(*campos))
         except Exception:
-            resultados = []
+            resultados_vetoriais = []
 
-        if len(resultados) < limite:
-            chunks_textuais = list(
-                queryset.filter(q_texto)
-                .order_by('id_chunk')[: max(limite * 40, 200)]
-                .values(*campos)
+        chunks_textuais = list(
+            queryset.filter(q_texto)
+            .order_by('id_chunk')[: max(limite * 40, 200)]
+            .values(*campos)
+        )
+
+        # Combina resultados textuais e vetoriais; se houver correspondências textuais
+        # para as palavras buscadas, prioriza os chunks com maior pontuação de relevância
+        # (ex.: parágrafos que contêm múltiplos substantivos da busca e não são sumário).
+        if chunks_textuais and palavras:
+            ids_textuais = {c['id_chunk'] for c in chunks_textuais}
+            for rv in resultados_vetoriais:
+                if rv['id_chunk'] not in ids_textuais and cls._pontuar_chunk_relevancia(rv, palavras) > 0:
+                    chunks_textuais.append(rv)
+                    ids_textuais.add(rv['id_chunk'])
+
+            chunks_textuais.sort(
+                key=lambda c: cls._pontuar_chunk_relevancia(c, palavras),
+                reverse=True,
             )
-            if palavras:
-                chunks_textuais.sort(
-                    key=lambda c: cls._pontuar_chunk_relevancia(c, palavras),
-                    reverse=True,
-                )
-            ids_existentes = {r['id_chunk'] for r in resultados}
-            contagem_por_doc: dict[int, int] = {}
-            for r in resultados:
-                doc_id = r['id_documento_id']
-                contagem_por_doc[doc_id] = contagem_por_doc.get(doc_id, 0) + 1
 
+            resultados: List[dict] = []
+            contagem_por_doc: dict[int, int] = {}
             for chunk in chunks_textuais:
                 doc_id = chunk['id_documento_id']
-                if chunk['id_chunk'] not in ids_existentes and contagem_por_doc.get(doc_id, 0) < 3:
+                if contagem_por_doc.get(doc_id, 0) < 3:
                     resultados.append(chunk)
-                    ids_existentes.add(chunk['id_chunk'])
                     contagem_por_doc[doc_id] = contagem_por_doc.get(doc_id, 0) + 1
                     if len(resultados) >= limite:
                         break
+            return resultados[:limite]
 
-        return resultados[:limite]
+        return resultados_vetoriais[:limite]

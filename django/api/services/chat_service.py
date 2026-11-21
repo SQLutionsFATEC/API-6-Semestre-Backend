@@ -76,13 +76,26 @@ class ChatService:
             logger.warning('chat etapa=nlp_fallback erro=%s', erro)
 
         palavras = [
-            p for p in re.findall(r'[a-zA-ZÀ-ÿ0-9]{2,}', mensagem_limpa.lower())
+            p for p in re.findall(r'[a-zA-ZÀ-ÿ0-9]{3,}', mensagem_limpa.lower())
             if p not in STOPWORDS_BUSCA
         ]
         if palavras:
             return ' '.join(palavras)
 
-        return mensagem_limpa
+        return ''
+
+    @staticmethod
+    def _chunk_possui_termo_relevante(chunk: Dict[str, Any], palavras: List[str]) -> bool:
+        """
+        Verifica se o chunk ou o nome do documento realmente contém ao menos um
+        dos substantivos/termos extraídos da mensagem, evitando que buscas
+        aleatórias (ex.: 'abc', 'xyz') retornem documentos sem relação.
+        """
+        if not palavras:
+            return False
+        conteudo = (chunk.get('conteudo') or '').lower()
+        nome_doc = (chunk.get('id_documento__nome') or '').lower()
+        return any(p in conteudo or p in nome_doc for p in palavras)
 
     @staticmethod
     def usuario_possui_acesso_documento(
@@ -159,6 +172,13 @@ class ChatService:
             return []
 
         termo_busca = cls.extrair_substantivos_mensagem(mensagem_usuario)
+        if not termo_busca:
+            return []
+
+        palavras = [p for p in termo_busca.lower().split() if len(p) >= 2]
+        if not palavras:
+            return []
+
         logger.info(
             'chat etapa=busca_contexto mensagem_len=%d termo_busca=%s docs_acessiveis=%d',
             len(mensagem_usuario),
@@ -175,14 +195,27 @@ class ChatService:
             limite=limite_documentos * 5,
             ids_documentos_permitidos=ids_acessiveis,
         )
+        chunks = [c for c in chunks if cls._chunk_possui_termo_relevante(c, palavras)]
 
         if not chunks and termo_busca.lower() != mensagem_usuario.lower():
-            queryset_ordenado, chunks = DocumentoViewSet.filtrar_por_contexto(
-                queryset=queryset_base,
-                contexto=mensagem_usuario,
-                limite=limite_documentos * 5,
-                ids_documentos_permitidos=ids_acessiveis,
-            )
+            palavras_msg = [
+                p for p in re.findall(r'[a-zA-ZÀ-ÿ0-9]{3,}', mensagem_usuario.lower())
+                if p not in STOPWORDS_BUSCA
+            ]
+            if palavras_msg:
+                queryset_ordenado, chunks_fallback = DocumentoViewSet.filtrar_por_contexto(
+                    queryset=queryset_base,
+                    contexto=' '.join(palavras_msg),
+                    limite=limite_documentos * 5,
+                    ids_documentos_permitidos=ids_acessiveis,
+                )
+                chunks = [
+                    c for c in chunks_fallback
+                    if cls._chunk_possui_termo_relevante(c, palavras_msg)
+                ]
+
+        if not chunks:
+            return []
 
         chunks_por_doc: Dict[int, List[Dict[str, Any]]] = {}
         for chunk in chunks:
@@ -192,9 +225,18 @@ class ChatService:
             if len(chunks_por_doc[doc_id]) < 3:
                 chunks_por_doc[doc_id].append(chunk)
 
+        ids_docs_validos = list(chunks_por_doc.keys())[:limite_documentos]
+        docs_map = {
+            doc.id_documento: doc
+            for doc in queryset_ordenado.filter(id_documento__in=ids_docs_validos)
+        }
+
         resultado: List[Dict[str, Any]] = []
-        for doc in queryset_ordenado[:limite_documentos]:
-            trechos_doc = chunks_por_doc.get(doc.id_documento, [])
+        for doc_id in ids_docs_validos:
+            doc = docs_map.get(doc_id)
+            if not doc:
+                continue
+            trechos_doc = chunks_por_doc.get(doc_id, [])
             pagina_principal = trechos_doc[0]['pagina'] if trechos_doc else 1
             conteudo_combinado = '\n\n'.join(c['conteudo'] for c in trechos_doc)
             resultado.append({
@@ -234,17 +276,18 @@ class ChatService:
         através do modelo carregado no serviço llama.cpp.
         """
         docs_rag = documentos_relevantes[:3]
-        if docs_rag:
-            blocos_contexto = [
-                f'[Documento {idx}: {doc.get("nome", f"Documento {idx}")} '
-                f'(Página {doc.get("pagina", 1)})]\n{doc.get("conteudo", "")}'
-                for idx, doc in enumerate(docs_rag, start=1)
-            ]
-            contexto_documental = '\n\n---\n\n'.join(blocos_contexto)
-        else:
-            contexto_documental = (
-                'Nenhum documento relevante ou acessível foi encontrado para esta consulta.'
+        if not docs_rag:
+            return (
+                'Não foram encontrados documentos relevantes aos quais você possui acesso '
+                'para responder a essa mensagem.'
             )
+
+        blocos_contexto = [
+            f'[Documento {idx}: {doc.get("nome", f"Documento {idx}")} '
+            f'(Página {doc.get("pagina", 1)})]\n{doc.get("conteudo", "")}'
+            for idx, doc in enumerate(docs_rag, start=1)
+        ]
+        contexto_documental = '\n\n---\n\n'.join(blocos_contexto)
 
         system_prompt = (
             'Você é um assistente virtual corporativo. '
