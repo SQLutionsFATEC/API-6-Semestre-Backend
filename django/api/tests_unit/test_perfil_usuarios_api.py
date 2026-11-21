@@ -161,7 +161,7 @@ def test_patch_meu_perfil_sucesso_retorna_200(mock_admin):
     assert resposta.json()['nome'] == 'Maria Editada'
 
 
-def test_usuarios_exige_role_admin(mock_admin):
+def test_usuarios_exige_role_operador_ou_admin(mock_admin):
     cliente = _cliente_com()
     cliente.force_authenticate(user=KeycloakUser(CLAIMS_USUARIO))
 
@@ -169,7 +169,7 @@ def test_usuarios_exige_role_admin(mock_admin):
 
     assert resposta.status_code == status.HTTP_403_FORBIDDEN
     assert resposta.json()['detail'] == (
-        'Somente usuários com a role admin podem acessar este recurso.'
+        'Somente usuários com a role Operador ou Admin podem acessar este recurso.'
     )
 
 
