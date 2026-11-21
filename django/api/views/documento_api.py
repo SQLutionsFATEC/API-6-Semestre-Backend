@@ -21,7 +21,7 @@ from api.serializers import EtiquetaSerializer
 from api.services.ml_service import MLService
 from api.services.tagging_service import TaggingService
 from api.services.vector_service import VectorService
-from api.services.authorization_service import verificar_acesso
+from api.services.authorization_service import verificar_acesso_documento
 from api.permissions import IsOperador
 
 from django.http import Http404
@@ -209,7 +209,8 @@ class DocumentoViewSet(ModelViewSet):
             "Retorna 401 caso o usuário não esteja autenticado. "
             "Retorna 403 caso o usuário não tenha permissão de acesso. "
             "A autorização segue a regra: "
-            "(Setor Usuário == Setor Doc E Nível Usuário >= Nível Doc) OU Nível Usuário == Operador. "
+            "(Setor Usuário == Setor Doc E Nível Usuário >= Nível Doc) OU Nível Usuário == Operador "
+            "OU existir solicitação de acesso aprovada para o usuário e o documento. "
             "Caso o usuário não tenha setor/nível definidos, aplica-se o mock padrão (Tecnico / Basico)."
         ),
         responses={
@@ -221,12 +222,7 @@ class DocumentoViewSet(ModelViewSet):
     def retrieve(self, request, *args, **kwargs):
         documento = self.get_object()
 
-        setor_usuario = getattr(request.user, 'setor', None)
-        nivel_usuario = getattr(request.user, 'nivel', None)
-
-        acesso_permitido = verificar_acesso(
-            setor_usuario, nivel_usuario, documento.setor, documento.nivel
-        )
+        acesso_permitido = verificar_acesso_documento(request.user, documento)
 
         serializer = self.get_serializer(documento)
         dados = serializer.data
@@ -249,7 +245,8 @@ class DocumentoViewSet(ModelViewSet):
             "sobre os documentos aprovados pelos filtros anteriores. "
             "A filtragem NÃO é afetada pelas permissões do usuário. "
             "Cada documento inclui o campo 'acesso_permitido' (boolean) para o frontend "
-            "Saber se o usuário tem acesso àquele documento. "
+            "Saber se o usuário tem acesso àquele documento, considerando a regra de "
+            "setor/nível, o nível Operador e a existência de solicitação de acesso aprovada. "
             "Requer autenticação: retorna 401 caso o usuário não envie autenticação válida. "
             "**Atenção:** O filtro 'contexto' é restrito a usuários não-operadores. "
             "Operadores que enviarem 'contexto' receberão 403 Forbidden."
