@@ -39,6 +39,7 @@ A documentação deve ficar próxima da implementação da rota, no viewset corr
 - `django/api/views/etiqueta_api.py`
 - `django/api/views/usuarios_api.py`
 - `django/api/views/perfil_api.py`
+- `django/api/views/chat_api.py`
 
 Use `@extend_schema` quando a rota tiver parâmetros, payload, respostas ou comportamento que não possa ser inferido com segurança.
 
@@ -269,7 +270,51 @@ SolicitacaoAcesso.objects.filter(
 ).exists()
 ```
 
-## 10. Convenções do projeto
+## 10. Conversa com o Chat (RAG)
+
+A rota `/api/chat` (`POST`) realiza busca semântica contextualizada e geração de respostas em linguagem natural com o método RAG (Retrieval-Augmented Generation).
+
+| Rota | Método | Quem pode | Respostas |
+|---|---|---|---|
+| `/api/chat` | POST | qualquer usuário autenticado | `200`, `400`, `401` |
+
+- Aceita apenas o método `POST` (com ou sem barra final: `/api/chat` ou `/api/chat/`).
+- Exige autenticação Bearer do Keycloak (`401 Unauthorized` caso não autenticado).
+- Extrai os substantivos da última mensagem de `context` utilizando NLP com `spaCy` (`TaggingService.nlp_texto`) para buscar os trechos de documentos mais relevantes à mensagem atual.
+- Filtra estritamente pelos documentos aos quais o usuário possui acesso (`verificar_acesso` por setor/nível ou Operador, além de solicitações aprovadas em `SolicitacaoAcesso`).
+- Utiliza os **três documentos mais relevantes** no método RAG para gerar a resposta em linguagem natural, sem timeout restritivo na requisição.
+
+Exemplo de payload:
+
+```json
+{
+  "context": [
+    "mensagem 1",
+    "resposta do sistema",
+    "resposta do usuario"
+  ]
+}
+```
+
+Exemplo de resposta (`200 OK`):
+
+```json
+{
+  "response": "Resposta gerada em linguagem natural com base nos documentos acessíveis...",
+  "documents": [
+    {
+      "id_documento": 1,
+      "nome": "Manual Técnico.pdf",
+      "setor": "Tecnico",
+      "nivel": "Basico",
+      "pagina": 1,
+      "conteudo": "Trecho relevante do documento..."
+    }
+  ]
+}
+```
+
+## 11. Convenções do projeto
 
 - Mantenha as rotas sob o prefixo `/api/`.
 - Use nomes em português consistentes com os recursos existentes.
