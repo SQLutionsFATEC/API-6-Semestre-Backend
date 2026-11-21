@@ -22,6 +22,11 @@ consulta por ID e a consulta de etiquetas exigem apenas autenticação válida.
 Upload, edição, exclusão e vínculo de etiquetas exigem que o token contenha o
 nível de acesso `operador`; caso contrário, a API retorna `403 Forbidden`.
 
+As rotas `/api/perfil/`, `/api/documentos/` e `/api/etiquetas/` também exigem
+o aceite de todas as cláusulas obrigatórias do termo vigente. Usuários
+autenticados que não cumprirem essa condição recebem `451 Unavailable For
+Legal Reasons`. As respostas `401` e `403` têm precedência sobre `451`.
+
 Para gerar e validar o schema localmente:
 
 ```bash

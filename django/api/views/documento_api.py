@@ -22,7 +22,7 @@ from api.services.ml_service import MLService
 from api.services.tagging_service import TaggingService
 from api.services.vector_service import VectorService
 from api.services.authorization_service import verificar_acesso
-from api.permissions import IsOperador
+from api.permissions import AceitouClausulasObrigatorias, IsOperador
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
@@ -102,6 +102,7 @@ class DocumentoViewSet(ModelViewSet):
             'vincular_etiqueta',
         }:
             permissions.append(IsOperador)
+        permissions.append(AceitouClausulasObrigatorias)
         return [permission() for permission in permissions]
 
     @extend_schema(
