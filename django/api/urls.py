@@ -30,6 +30,7 @@ from api.views.solicitacoes_acesso_api import (
     SolicitacaoAcessoDetalheView,
     SolicitacoesAcessoView,
 )
+from api.views.consentimento_api import ConsentimentoView
 
 router = DefaultRouter()
 router.register(r'documentos', DocumentoViewSet, basename='documento')
@@ -40,6 +41,19 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/perfil/', PerfilView.as_view(), name='perfil'),
     path('api/vazamentos/', VazamentoView.as_view(), name='vazamentos'),
+
+    # --- Consentimento ---
+    re_path(
+        r'^api/consentimento/?$',
+        ConsentimentoView.as_view(),
+        name='consentimento',
+    ),
+    re_path(
+        r'^api/consentimento/(?P<id_usuario>[^/]+)/?$',
+        ConsentimentoView.as_view(),
+        name='consentimento-detalhe',
+    ),
+
     re_path(
         r'^api/solicitacoes-acesso/?$',
         SolicitacoesAcessoView.as_view(),
