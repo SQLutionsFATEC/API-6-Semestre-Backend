@@ -12,6 +12,12 @@ from api.models import Documento, Etiqueta
 
 class DocumentoAutorizacaoTest(TestCase):
     def setUp(self):
+        termos_patcher = patch(
+            'api.permissions.AceitouClausulasObrigatorias.has_permission',
+            return_value=True,
+        )
+        termos_patcher.start()
+        self.addCleanup(termos_patcher.stop)
         self.documento = Documento.objects.create(
             tipo_arquivo='pdf',
             nome='Manual.pdf',
@@ -105,6 +111,12 @@ class DocumentoAutorizacaoTest(TestCase):
 
 class DocumentoApiTest(TestCase):
     def setUp(self):
+        termos_patcher = patch(
+            'api.permissions.AceitouClausulasObrigatorias.has_permission',
+            return_value=True,
+        )
+        termos_patcher.start()
+        self.addCleanup(termos_patcher.stop)
         self.documento = Documento.objects.create(
             tipo_arquivo='pdf',
             nome='Manual.pdf',
@@ -866,6 +878,12 @@ class DocumentoApiTest(TestCase):
 class DocumentoAuthorizationTest(TestCase):
 
     def setUp(self):
+        termos_patcher = patch(
+            'api.permissions.AceitouClausulasObrigatorias.has_permission',
+            return_value=True,
+        )
+        termos_patcher.start()
+        self.addCleanup(termos_patcher.stop)
         self.client = APIClient()
         User = get_user_model()
 
