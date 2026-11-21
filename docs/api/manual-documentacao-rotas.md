@@ -341,3 +341,56 @@ SolicitacaoAcesso.objects.filter(
     usuario_id=request.user.id,
     approved=True,
 ).exists()
+```
+## 12. Consentimento
+
+### GET /api/consentimento
+
+Retorna o termo em vigor e o estado atual de cada cláusula **para o usuário autenticado**.
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Resposta (200):**
+```json
+{
+  "id_termo": 3,
+  "data_criacao": "2026-11-18",
+  "clausulas": [
+    { "id_clausula": 1, "requisito": "coleta_nome", "desc": "Coleta de nome", "obrigatoria": true, "aceita": true },
+    { "id_clausula": 2, "requisito": "coleta_uso_email", "desc": "Coleta e uso do email", "obrigatoria": false, "aceita": null }
+  ]
+}
+```
+
+O campo aceita pode ser:
+
+`true` → o usuário consentiu (último registro = acordo true)
+
+`false` → o usuário revogou (último registro = acordo false)
+
+`null` → o usuário nunca respondeu
+
+### GET /api/consentimento/{id_usuario}
+
+Mesma resposta, mas para o usuário cujo UUID é informado. Útil para operadores/admin consultarem o estado de outro usuário.
+
+### PATCH /api/consentimento
+Atualiza o consentimento do usuário logado. O corpo é um objeto { `"<id_clausula>": true|false }`.
+
+Exemplo de corpo:
+
+```
+{ "1": true, "2": false, "15": true }
+```
+
+Aceita um ou mais pares. Para cada par, o serviço cria um novo registro (Append-Only) no histórico.
+
+Resposta (200): o mesmo formato do GET, já com o estado atualizado.
+
+Erros:
+
+`400` – ID de cláusula não pertence ao termo atual, valor não é boolean ou payload mal formatado.
+
+`500` – erro inesperado.
+
+
