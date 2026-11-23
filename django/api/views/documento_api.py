@@ -22,7 +22,7 @@ from api.services.ml_service import MLService
 from api.services.tagging_service import TaggingService
 from api.services.vector_service import VectorService
 from api.services.authorization_service import verificar_acesso_documento
-from api.permissions import IsOperador
+from api.permissions import AceitouClausulasObrigatorias, IsOperador
 
 from django.http import Http404
 from django.core.paginator import EmptyPage
@@ -45,6 +45,53 @@ class DocumentoViewSet(ModelViewSet):
 
     lookup_field = "id_documento"
 
+    @staticmethod
+    def filtrar_por_contexto(
+        queryset,
+        contexto: str,
+        limite: int = 5,
+        ids_documentos_permitidos: list[int] | None = None,
+    ):
+        """
+        Mecanismo compartilhado de busca de documentos por contexto semântico.
+        Retorna a tupla (queryset_ordenado_por_relevancia, chunks_encontrados).
+        """
+        contexto_limpo = (contexto or "").strip()
+        if not contexto_limpo:
+            return queryset.distinct().order_by("id_documento"), []
+
+        if ids_documentos_permitidos is not None:
+            chunks = VectorService.buscar_contexto(
+                contexto_limpo.lower(),
+                limite=limite,
+                ids_documentos=ids_documentos_permitidos,
+            )
+        else:
+            chunks = VectorService.buscar_contexto(
+                contexto_limpo.lower(),
+                limite=limite,
+            )
+
+        ids_documentos_contexto = list(
+            dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
+        )
+        queryset = queryset.filter(id_documento__in=ids_documentos_contexto).distinct()
+
+        if ids_documentos_contexto:
+            ordem_contexto = Case(
+                *[
+                    When(id_documento=id_documento, then=posicao)
+                    for posicao, id_documento in enumerate(ids_documentos_contexto)
+                ],
+                default=len(ids_documentos_contexto),
+                output_field=IntegerField(),
+            )
+            queryset = queryset.order_by(ordem_contexto, "id_documento")
+        else:
+            queryset = queryset.order_by("id_documento")
+
+        return queryset, chunks
+
     def get_permissions(self):
         permissions = [IsAuthenticated]
         if self.action in {
@@ -55,6 +102,7 @@ class DocumentoViewSet(ModelViewSet):
             'vincular_etiqueta',
         }:
             permissions.append(IsOperador)
+        permissions.append(AceitouClausulasObrigatorias)
         return [permission() for permission in permissions]
 
     @extend_schema(
@@ -372,34 +420,14 @@ class DocumentoViewSet(ModelViewSet):
                 q_setores |= Q(setor__icontains=s)
             queryset = queryset.filter(q_setores)
 
-        ids_documentos_contexto = None
-        if contexto:
-            contexto = contexto.strip()
-            if contexto:
-                chunks = VectorService.buscar_contexto(
-                    contexto.lower(),
-                    limite=5,
-                )
-                ids_documentos_contexto = list(
-                    dict.fromkeys(chunk["id_documento_id"] for chunk in chunks)
-                )
-
-                queryset = queryset.filter(id_documento__in=ids_documentos_contexto)
-
-        queryset = queryset.distinct()
-
-        if ids_documentos_contexto:
-            ordem_contexto = Case(
-                *[
-                    When(id_documento=id_documento, then=posicao)
-                    for posicao, id_documento in enumerate(ids_documentos_contexto)
-                ],
-                default=len(ids_documentos_contexto),
-                output_field=IntegerField(),
+        if contexto and contexto.strip():
+            queryset, _ = self.filtrar_por_contexto(
+                queryset,
+                contexto.strip(),
+                limite=5,
             )
-            queryset = queryset.order_by(ordem_contexto, "id_documento")
         else:
-            queryset = queryset.order_by("id_documento")
+            queryset = queryset.distinct().order_by("id_documento")
 
         try:
             page_number = int(request.query_params.get("page", 1))

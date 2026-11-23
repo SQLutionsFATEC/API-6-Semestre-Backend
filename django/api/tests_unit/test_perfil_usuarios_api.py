@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from api.authentication.keycloak import KeycloakUser
+from api.permissions import AceitouClausulasObrigatorias
 from api.services.delecao_usuario import hash_id_usuario
 from api.services.keycloak_admin import KeycloakAdminException
 
@@ -45,6 +46,15 @@ USUARIO_REPRESENTACAO_ADMIN = {
     'attributes': {'setor': ['normativo']},
     'realmRoles': ['admin', 'operador'],
 }
+
+
+@pytest.fixture(autouse=True)
+def ignorar_consentimento_nos_testes_de_perfil(monkeypatch):
+    monkeypatch.setattr(
+        AceitouClausulasObrigatorias,
+        'has_permission',
+        lambda self, request, view: True,
+    )
 
 
 def _cliente_com(usuario=None):
@@ -161,7 +171,7 @@ def test_patch_meu_perfil_sucesso_retorna_200(mock_admin):
     assert resposta.json()['nome'] == 'Maria Editada'
 
 
-def test_usuarios_exige_role_admin(mock_admin):
+def test_usuarios_exige_role_operador_ou_admin(mock_admin):
     cliente = _cliente_com()
     cliente.force_authenticate(user=KeycloakUser(CLAIMS_USUARIO))
 
@@ -169,7 +179,7 @@ def test_usuarios_exige_role_admin(mock_admin):
 
     assert resposta.status_code == status.HTTP_403_FORBIDDEN
     assert resposta.json()['detail'] == (
-        'Somente usuários com a role admin podem acessar este recurso.'
+        'Somente usuários com a role Operador ou Admin podem acessar este recurso.'
     )
 
 

@@ -22,6 +22,11 @@ consulta por ID e a consulta de etiquetas exigem apenas autenticação válida.
 Upload, edição, exclusão e vínculo de etiquetas exigem que o token contenha o
 nível de acesso `operador`; caso contrário, a API retorna `403 Forbidden`.
 
+As rotas `/api/perfil/`, `/api/documentos/` e `/api/etiquetas/` também exigem
+o aceite de todas as cláusulas obrigatórias do termo vigente. Usuários
+autenticados que não cumprirem essa condição recebem `451 Unavailable For
+Legal Reasons`. As respostas `401` e `403` têm precedência sobre `451`.
+
 Para gerar e validar o schema localmente:
 
 ```bash
@@ -39,6 +44,7 @@ A documentação deve ficar próxima da implementação da rota, no viewset corr
 - `django/api/views/etiqueta_api.py`
 - `django/api/views/usuarios_api.py`
 - `django/api/views/perfil_api.py`
+- `django/api/views/chat_api.py`
 
 Use `@extend_schema` quando a rota tiver parâmetros, payload, respostas ou comportamento que não possa ser inferido com segurança.
 
@@ -277,7 +283,51 @@ para aquele documento está aprovada; em `GET /api/documentos/{id_documento}/`,
 o arquivo (`data`) também é retornado nesse caso. A implementação está em
 `verificar_acesso_documento` (`api/services/authorization_service.py`).
 
-## 10. Convenções do projeto
+## 10. Conversa com o Chat (RAG)
+
+A rota `/api/chat` (`POST`) realiza busca semântica contextualizada e geração de respostas em linguagem natural com o método RAG (Retrieval-Augmented Generation).
+
+| Rota | Método | Quem pode | Respostas |
+|---|---|---|---|
+| `/api/chat` | POST | qualquer usuário autenticado | `200`, `400`, `401` |
+
+- Aceita apenas o método `POST` (com ou sem barra final: `/api/chat` ou `/api/chat/`).
+- Exige autenticação Bearer do Keycloak (`401 Unauthorized` caso não autenticado).
+- Extrai os substantivos da última mensagem de `context` utilizando NLP com `spaCy` (`TaggingService.nlp_texto`) para buscar os trechos de documentos mais relevantes à mensagem atual.
+- Filtra estritamente pelos documentos aos quais o usuário possui acesso (`verificar_acesso` por setor/nível ou Operador, além de solicitações aprovadas em `SolicitacaoAcesso`).
+- Utiliza os **três documentos mais relevantes** no método RAG para gerar a resposta em linguagem natural, sem timeout restritivo na requisição.
+
+Exemplo de payload:
+
+```json
+{
+  "context": [
+    "mensagem 1",
+    "resposta do sistema",
+    "resposta do usuario"
+  ]
+}
+```
+
+Exemplo de resposta (`200 OK`):
+
+```json
+{
+  "response": "Resposta gerada em linguagem natural com base nos documentos acessíveis...",
+  "documents": [
+    {
+      "id_documento": 1,
+      "nome": "Manual Técnico.pdf",
+      "setor": "Tecnico",
+      "nivel": "Basico",
+      "pagina": 1,
+      "conteudo": "Trecho relevante do documento..."
+    }
+  ]
+}
+```
+
+## 11. Convenções do projeto
 
 - Mantenha as rotas sob o prefixo `/api/`.
 - Use nomes em português consistentes com os recursos existentes.
@@ -287,7 +337,7 @@ o arquivo (`data`) também é retornado nesse caso. A implementação está em
 - Atualize o serializer quando o contrato de entrada ou saída mudar.
 - Evite duplicar manualmente no schema o que já é inferido pelo serializer.
 
-## 11. Busca Especial e Níveis de Acesso (Task 103)
+## 12. Busca Especial e Níveis de Acesso (Task 103)
 
 A rota de listagem de documentos (`GET /api/documentos/`) permite filtrar documentos por contexto semântico através do parâmetro `contexto`. Esta é uma funcionalidade de acesso especial.
 
@@ -305,7 +355,7 @@ SolicitacaoAcesso.objects.filter(
     approved=True,
 ).exists()
 ```
-## 12. Consentimento
+## 13. Consentimento
 
 ### GET /api/consentimento
 

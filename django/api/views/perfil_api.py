@@ -10,6 +10,7 @@ from api.serializers.usuario_serializer import (
     UsuarioSerializer,
 )
 from api.services import keycloak_admin
+from api.permissions import AceitouClausulasObrigatorias
 
 
 def _resposta_erro_keycloak(erro):
@@ -38,7 +39,7 @@ def _resposta_erro_keycloak(erro):
 class PerfilView(APIView):
     """Retorna e atualiza o perfil do usuário autenticado (token Bearer)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AceitouClausulasObrigatorias]
 
     @extend_schema(
         summary='Consulta o perfil do usuário autenticado',
