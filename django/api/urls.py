@@ -25,6 +25,13 @@ from api.views.documento_api import DocumentoViewSet
 from api.views.etiqueta_api import EtiquetaViewSet
 from api.views.perfil_api import PerfilView
 from api.views.usuarios_api import UsuarioDetalheView, UsuariosView
+from api.views.vazamento_api import VazamentoView
+from api.views.solicitacoes_acesso_api import (
+    SolicitacaoAcessoDetalheView,
+    SolicitacoesAcessoView,
+)
+from api.views.chat_api import ChatView
+from api.views.consentimento_api import ConsentimentoView
 
 router = DefaultRouter()
 router.register(r'documentos', DocumentoViewSet, basename='documento')
@@ -34,7 +41,31 @@ urlpatterns = [
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/perfil/', PerfilView.as_view(), name='perfil'),
-    # Barra final opcional: atende tanto /api/usuarios/ quanto /api/usuarios.
+    path('api/vazamentos/', VazamentoView.as_view(), name='vazamentos'),
+    re_path(r'^api/chat/?$', ChatView.as_view(), name='chat'),
+
+    # --- Consentimento ---
+    re_path(
+        r'^api/consentimento/?$',
+        ConsentimentoView.as_view(),
+        name='consentimento',
+    ),
+    re_path(
+        r'^api/consentimento/(?P<id_usuario>[^/]+)/?$',
+        ConsentimentoView.as_view(),
+        name='consentimento-detalhe',
+    ),
+
+    re_path(
+        r'^api/solicitacoes-acesso/?$',
+        SolicitacoesAcessoView.as_view(),
+        name='solicitacoes-acesso',
+    ),
+    re_path(
+        r'^api/solicitacoes-acesso/(?P<id_solicitacao>\d+)/?$',
+        SolicitacaoAcessoDetalheView.as_view(),
+        name='solicitacao-acesso-detalhe',
+    ),
     re_path(r'^api/usuarios/?$', UsuariosView.as_view(), name='usuarios'),
     re_path(
         r'^api/usuarios/(?P<id_usuario>[^/]+)/?$',

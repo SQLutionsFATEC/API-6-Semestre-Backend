@@ -259,9 +259,12 @@ def atualizar_usuario(id_usuario, **campos):
     # campos ausentes viram valores vazios. Preservamos os atuais.
     atual = obter_usuario(id_usuario)
     for campo_padrao, padrao in (
+        ('username', atual.get('username') or atual.get('email')),
         ('firstName', atual.get('firstName')),
         ('lastName', atual.get('lastName')),
         ('email', atual.get('email')),
+        ('enabled', atual.get('enabled', True)),
+        ('attributes', atual.get('attributes') or {}),
     ):
         payload.setdefault(campo_padrao, padrao)
 

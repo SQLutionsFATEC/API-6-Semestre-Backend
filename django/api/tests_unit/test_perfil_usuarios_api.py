@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from api.authentication.keycloak import KeycloakUser
+from api.permissions import AceitouClausulasObrigatorias
 from api.services.delecao_usuario import hash_id_usuario
 from api.services.keycloak_admin import KeycloakAdminException
 
@@ -45,6 +46,15 @@ USUARIO_REPRESENTACAO_ADMIN = {
     'attributes': {'setor': ['normativo']},
     'realmRoles': ['admin', 'operador'],
 }
+
+
+@pytest.fixture(autouse=True)
+def ignorar_consentimento_nos_testes_de_perfil(monkeypatch):
+    monkeypatch.setattr(
+        AceitouClausulasObrigatorias,
+        'has_permission',
+        lambda self, request, view: True,
+    )
 
 
 def _cliente_com(usuario=None):
@@ -161,7 +171,7 @@ def test_patch_meu_perfil_sucesso_retorna_200(mock_admin):
     assert resposta.json()['nome'] == 'Maria Editada'
 
 
-def test_usuarios_exige_role_admin(mock_admin):
+def test_usuarios_exige_role_operador_ou_admin(mock_admin):
     cliente = _cliente_com()
     cliente.force_authenticate(user=KeycloakUser(CLAIMS_USUARIO))
 
@@ -169,7 +179,7 @@ def test_usuarios_exige_role_admin(mock_admin):
 
     assert resposta.status_code == status.HTTP_403_FORBIDDEN
     assert resposta.json()['detail'] == (
-        'Somente usuários com a role admin podem acessar este recurso.'
+        'Somente usuários com a role Operador ou Admin podem acessar este recurso.'
     )
 
 
@@ -345,3 +355,177 @@ def test_usuario_detalhe_502_quando_keycloak_falha(mock_admin):
     resposta = cliente.get(reverse('usuario-detalhe', args=['qualquer']))
 
     assert resposta.status_code == status.HTTP_502_BAD_GATEWAY
+
+
+CLAIMS_OPERADOR = {
+    'sub': 'id-operador',
+    'preferred_username': 'operador.projeto',
+    'name': 'Operador Projeto',
+    'email': 'operador@example.com',
+    'realm_access': {'roles': ['operador']},
+}
+
+
+def test_usuario_detalhe_patch_sem_autenticacao_retorna_401():
+    cliente = _cliente_com()
+
+    resposta = cliente.patch(
+        reverse('usuario-detalhe', args=['id-usuario-comum']),
+        {'setor': 'Técnico', 'nivel': 'Comercial'},
+        format='json',
+    )
+
+    assert resposta.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def test_usuario_detalhe_patch_sem_nivel_operador_retorna_403():
+    cliente = _cliente_com(KeycloakUser(CLAIMS_USUARIO))
+
+    resposta = cliente.patch(
+        reverse('usuario-detalhe', args=['id-usuario-comum']),
+        {'setor': 'Técnico', 'nivel': 'Comercial'},
+        format='json',
+    )
+
+    assert resposta.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.parametrize(
+    'setor_entrada,setor_esperado,nivel_entrada,nivel_esperado',
+    [
+        ('Técnico', 'tecnico', 'Básico', 'basico'),
+        ('Normativo', 'normativo', 'Comercial', 'comercial'),
+        ('Jurídico', 'juridico', 'Militar', 'militar'),
+        ('Qualitativo', 'qualitativo', 'BÁSICO', 'basico'),
+    ],
+)
+def test_usuario_detalhe_patch_atualiza_setor_e_nivel_normalizados(
+    mock_admin, setor_entrada, setor_esperado, nivel_entrada, nivel_esperado
+):
+    papeis_estado = {'atuais': [{'name': 'basico'}]}
+
+    def atualizar(id_usuario, **campos):
+        assert id_usuario == 'id-usuario-comum'
+        assert campos == {
+            'setor': setor_esperado,
+            'nivel_acesso': nivel_esperado,
+        }
+        papeis_estado['atuais'] = [{'name': nivel_esperado}]
+        atualizado = dict(USUARIO_REPRESENTACAO)
+        atualizado['id'] = id_usuario
+        atualizado['attributes'] = {'setor': [setor_esperado]}
+        return atualizado
+
+    mock_admin(
+        atualizar_usuario=atualizar,
+        listar_papeis_realm_usuario=lambda id_usuario: papeis_estado['atuais'],
+    )
+    cliente = _cliente_com(KeycloakUser(CLAIMS_OPERADOR))
+
+    resposta = cliente.patch(
+        reverse('usuario-detalhe', args=['id-usuario-comum']),
+        {'setor': setor_entrada, 'nivel': nivel_entrada},
+        format='json',
+    )
+
+    dados = resposta.json()
+    assert resposta.status_code == status.HTTP_200_OK
+    assert dados['setor'] == setor_esperado
+    assert dados['nivel_acesso'] == nivel_esperado
+
+
+@pytest.mark.parametrize('payload', [
+    {'nivel': 'Operador'},
+    {'nivel': 'operador'},
+    {'nivel_acesso': 'Operador'},
+    {'nivel_acesso': 'operador'},
+])
+def test_usuario_detalhe_patch_rejeita_promover_para_operador(mock_admin, payload):
+    cliente = _cliente_com(KeycloakUser(CLAIMS_OPERADOR))
+
+    resposta = cliente.patch(
+        reverse('usuario-detalhe', args=['id-usuario-comum']),
+        payload,
+        format='json',
+    )
+
+    assert resposta.status_code == status.HTTP_400_BAD_REQUEST
+
+
+def test_usuario_detalhe_patch_nao_permite_modificar_outro_operador(mock_admin):
+    chamado = {'atualizar': False}
+
+    def atualizar(id_usuario, **campos):
+        chamado['atualizar'] = True
+        return dict(USUARIO_REPRESENTACAO)
+
+    mock_admin(
+        atualizar_usuario=atualizar,
+        listar_papeis_realm_usuario=lambda id_usuario: [{'name': 'operador'}],
+    )
+    cliente = _cliente_com(KeycloakUser(CLAIMS_OPERADOR))
+
+    resposta = cliente.patch(
+        reverse('usuario-detalhe', args=['id-outro-operador']),
+        {'setor': 'Jurídico', 'nivel': 'Militar'},
+        format='json',
+    )
+
+    assert resposta.status_code == status.HTTP_403_FORBIDDEN
+    assert chamado['atualizar'] is False
+
+
+@pytest.mark.parametrize('payload', [
+    {'setor': 'Financeiro'},
+    {'nivel': 'Diretor'},
+    {'setor': 'Técnico', 'campo_inexistente': 'valor'},
+])
+def test_usuario_detalhe_patch_rejeita_campos_ou_valores_invalidos(mock_admin, payload):
+    cliente = _cliente_com(KeycloakUser(CLAIMS_OPERADOR))
+
+    resposta = cliente.patch(
+        reverse('usuario-detalhe', args=['id-usuario-comum']),
+        payload,
+        format='json',
+    )
+
+    assert resposta.status_code == status.HTTP_400_BAD_REQUEST
+
+
+def test_usuario_detalhe_patch_com_nivel_acesso_valido(mock_admin):
+    def atualizar(id_usuario, **campos):
+        assert campos == {'nivel_acesso': 'comercial'}
+        return dict(USUARIO_REPRESENTACAO, id=id_usuario)
+
+    mock_admin(
+        atualizar_usuario=atualizar,
+        listar_papeis_realm_usuario=lambda id_usuario: [{'name': 'comercial'}],
+    )
+    cliente = _cliente_com(KeycloakUser(CLAIMS_OPERADOR))
+
+    resposta = cliente.patch(
+        reverse('usuario-detalhe', args=['id-usuario-comum']),
+        {'nivel_acesso': 'Comercial'},
+        format='json',
+    )
+
+    assert resposta.status_code == status.HTTP_200_OK
+    assert resposta.json()['nivel_acesso'] == 'comercial'
+
+
+def test_usuario_detalhe_patch_404_quando_usuario_inexistente(mock_admin):
+    def listar_papeis(id_usuario):
+        raise KeycloakAdminException(
+            'Usuário não encontrado no Keycloak.', codigo_status=404
+        )
+
+    mock_admin(listar_papeis_realm_usuario=listar_papeis)
+    cliente = _cliente_com(KeycloakUser(CLAIMS_OPERADOR))
+
+    resposta = cliente.patch(
+        reverse('usuario-detalhe', args=['nao-existe']),
+        {'setor': 'Técnico', 'nivel': 'Básico'},
+        format='json',
+    )
+
+    assert resposta.status_code == status.HTTP_404_NOT_FOUND

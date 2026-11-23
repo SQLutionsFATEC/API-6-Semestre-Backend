@@ -41,8 +41,8 @@ class DocumentoChunk(models.Model):
     pagina = models.IntegerField(default=1, help_text='Número da página do documento original')
     conteudo = models.TextField(help_text='Texto do chunk em Markdown')
     embedding = VectorField(
-        dimensions=768,
-        help_text='Embedding vetorial do chunk com 768 dimensões',
+        dimensions=256,
+        help_text='Embedding vetorial do chunk com 256 dimensões',
         null=True,
         blank=True,
     )

@@ -25,6 +25,13 @@ ML_MODEL_PATH = Path(
     )
 )
 
+TAGGING_MODEL_PATH = Path(
+    os.getenv(
+        "TAGGING_MODEL_PATH",
+        BASE_DIR.parent / 'docs' / 'ml_bertopic' / 'artifacts' / 'modelo_categorias_cpu_named.joblib'
+    )
+)
+NLP_CHUNK_SIZE = os.getenv("NLP_CHUNK_SIZE", 500000)  # tamanho das fatias usadas no nlp.
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -189,6 +196,30 @@ EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'false').lower() in ('1', 'true'
 DEFAULT_FROM_EMAIL = os.environ.get(
     'DEFAULT_FROM_EMAIL', 'nao-responda@sqlutions.example.com'
 )
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'api': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',

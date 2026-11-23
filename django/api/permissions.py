@@ -1,4 +1,32 @@
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import BasePermission
+
+from api.services.consentimento import obter_consentimentos_usuario
+
+
+class TermsNotAccepted(APIException):
+    status_code = 451
+    default_detail = (
+        'O acesso está bloqueado até que todas as cláusulas obrigatórias '
+        'dos Termos e Condições vigentes sejam aceitas.'
+    )
+    default_code = 'terms_not_accepted'
+
+
+class AceitouClausulasObrigatorias(BasePermission):
+    """Exige o aceite de todas as cláusulas obrigatórias do termo vigente."""
+
+    def has_permission(self, request, view):
+        id_usuario = getattr(request.user, 'id', None)
+        consentimentos = obter_consentimentos_usuario(id_usuario)
+        aceitou_todas = all(
+            item['acordo'] is True
+            for item in consentimentos
+            if item['clausula'].obrigatoria
+        )
+        if not aceitou_todas:
+            raise TermsNotAccepted()
+        return True
 
 
 class IsAdminRole(BasePermission):

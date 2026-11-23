@@ -6,6 +6,18 @@ from .usuario_serializer import (
     UsuarioSerializer,
     UsuarioUpdateSerializer,
 )
+from .solicitacao_acesso_serializer import (
+    SolicitacaoAcessoCreateSerializer,
+    SolicitacaoAcessoSerializer,
+    SolicitacaoAcessoUpdateSerializer,
+)
+
+from .chat_serializer import (
+    ChatDocumentoRelevanteSerializer,
+    ChatRequestSerializer,
+    ChatResponseSerializer,
+)
+from .vazamento_serializer import VazamentoSerializer
 
 __all__ = [
     'DocumentoSerializer',
@@ -15,4 +27,11 @@ __all__ = [
     'UsuarioPerfilUpdateSerializer',
     'UsuarioCreateSerializer',
     'UsuarioUpdateSerializer',
+    'SolicitacaoAcessoSerializer',
+    'SolicitacaoAcessoCreateSerializer',
+    'SolicitacaoAcessoUpdateSerializer',
+    'ChatRequestSerializer',
+    'ChatDocumentoRelevanteSerializer',
+    'ChatResponseSerializer',
+    'VazamentoSerializer',
 ]

@@ -12,7 +12,8 @@ Atualmente, lidar com PDFs técnicos complexos (como manuais da FAA ou especific
 
 Para resolver isso, utilizamos:
 * **pymupdf4llm:** Para extrair o texto em formato Markdown, preservando a estrutura vital de tabelas e cabeçalhos.
-* **Embeddings Locais:** Os textos são convertidos em matemática pelo modelo `nomic-embed-text` via **Ollama** e salvos no banco, garantindo que os dados da empresa permaneçam 100% locais e seguros.
+* **Embeddings Locais:** Os textos são convertidos em matemática pelo modelo GGUF `nomic-embed-text-v1.5` via **llama.cpp** e salvos no banco, garantindo que os dados da empresa permaneçam 100% locais e seguros.
+* **Indexação em lote:** Os chunks são enviados em grupos de oito para reduzir o custo de requisições HTTP durante a indexação.
 
 ## Estrutura do Banco de Dados
 
@@ -20,7 +21,7 @@ Para suportar o motor de IA sem duplicar arquivos, a modelagem foi construída c
 
 Foi criada uma entidade `DocumentoChunk` projetada para armazenar os blocos de texto fatiados. Ela se relaciona diretamente com a entidade base do sistema:
 * **Relacionamento:** A tabela possui uma Chave Estrangeira que aponta para o ID da tabela de `Documento`.
-* **Campos Vetoriais:** O campo principal armazena o `embedding` como um vetor de 768 dimensões.
+* **Campos Vetoriais:** O campo principal armazena o `embedding` como um vetor de 256 dimensões, usando o suporte Matryoshka do modelo Nomic.
 * **Filtros (Pre-filtering):** A filtragem por setores será feita dinamicamente através do relacionamento já existente entre `Documento` e a tabela `EtiquetaDocumento`.
 
 Opcionalmente, a tabela pode utilizar um índice **HNSW (Hierarchical Navigable Small World)** para permitir buscas ultrarrápidas em milhares de blocos.
@@ -35,7 +36,7 @@ Extração p/ Markdown (pymupdf4llm)
       ↓
 Divisão em Chunks (LangChain)
       ↓
-Embeddings (nomic-embed-text via Ollama)
+Embeddings (nomic-embed-text-v1.5 GGUF via llama.cpp)
       ↓
 Salvo no PostgreSQL (pgvector)
 ```
@@ -53,7 +54,7 @@ Exemplo de verificação do banco:
 🆔 ID do Chunk : 1
 📄 Documento   : AC-20-37E.pdf (Página 12)
 📝 Texto       : # Capítulo 3. Requisitos de Manutenção...
-🔢 Embedding   : 768 dimensões matemáticas geradas [0.012, -0.231, 0.054, ...]
+🔢 Embedding   : 256 dimensões matemáticas geradas [0.012, -0.231, 0.054, ...]
 ```
 
 Com os dados estruturados dessa forma, o banco de dados fica arquiteturalmente pronto para receber integrações futuras com motores de busca híbrida ou modelos de linguagem (LLMs).

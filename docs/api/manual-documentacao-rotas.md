@@ -22,6 +22,11 @@ consulta por ID e a consulta de etiquetas exigem apenas autenticação válida.
 Upload, edição, exclusão e vínculo de etiquetas exigem que o token contenha o
 nível de acesso `operador`; caso contrário, a API retorna `403 Forbidden`.
 
+As rotas `/api/perfil/`, `/api/documentos/` e `/api/etiquetas/` também exigem
+o aceite de todas as cláusulas obrigatórias do termo vigente. Usuários
+autenticados que não cumprirem essa condição recebem `451 Unavailable For
+Legal Reasons`. As respostas `401` e `403` têm precedência sobre `451`.
+
 Para gerar e validar o schema localmente:
 
 ```bash
@@ -39,6 +44,7 @@ A documentação deve ficar próxima da implementação da rota, no viewset corr
 - `django/api/views/etiqueta_api.py`
 - `django/api/views/usuarios_api.py`
 - `django/api/views/perfil_api.py`
+- `django/api/views/chat_api.py`
 
 Use `@extend_schema` quando a rota tiver parâmetros, payload, respostas ou comportamento que não possa ser inferido com segurança.
 
@@ -216,7 +222,112 @@ def delete(self, request, id_usuario):
 
 > Use `operation_id` explícito nas duas rotas de deleção: sem ele, o `drf-spectacular` gera o mesmo id de operação para ambas e o schema emite aviso de colisão.
 
-## 9. Convenções do projeto
+## 9. Solicitações de acesso a documentos
+
+As solicitações são persistidas na tabela `solicitacao_acesso`. O documento
+possui uma chave estrangeira para `documento`; `usuario_id` é o `sub` do
+usuário no Keycloak, pois os usuários não são armazenados em uma tabela local.
+A combinação de documento e usuário é única, portanto uma segunda solicitação
+não cria outro registro.
+
+| Rota | Método | Quem pode | Respostas |
+|---|---|---|---|
+| `/api/solicitacoes-acesso/` | POST | usuário autenticado não operador | `201` nova solicitação, `200` já existente, `400`, `401`, `403` |
+| `/api/solicitacoes-acesso/` | GET | operador | lista paginada, `401`, `403` |
+| `/api/solicitacoes-acesso/{id}/` | PATCH | operador | altera `approved`, `200`, `400`, `401`, `403`, `404` |
+
+Exemplos de payload:
+
+```json
+// POST
+{"documento_id": 42}
+
+// PATCH
+{"approved": true}
+```
+
+O GET usa paginação por `page` e retorna `count`, `next`, `previous` e
+`results`:
+
+```text
+GET /api/solicitacoes-acesso/?page=2
+```
+
+Para verificar se um usuário possui acesso especial a um documento, consulte
+uma solicitação aprovada para os dois identificadores:
+
+```sql
+SELECT 1
+FROM solicitacao_acesso
+WHERE documento_id = 42
+  AND usuario_id = 'sub-do-usuario-no-keycloak'
+  AND approved = TRUE;
+```
+
+Se a consulta retornar uma linha, a solicitação foi aprovada. No Django, a
+mesma verificação pode ser feita com:
+
+```python
+SolicitacaoAcesso.objects.filter(
+    documento_id=id_documento,
+    usuario_id=request.user.id,
+    approved=True,
+).exists()
+```
+
+Essa verificação é aplicada às rotas de documentos: a regra de acesso é
+`(Setor Usuário == Setor Doc E Nível Usuário >= Nível Doc) OU Nível Usuário ==
+Operador OU solicitação de acesso aprovada`. Em `GET /api/documentos/`, o campo
+`acesso_permitido` retorna `true` quando a solicitação do usuário autenticado
+para aquele documento está aprovada; em `GET /api/documentos/{id_documento}/`,
+o arquivo (`data`) também é retornado nesse caso. A implementação está em
+`verificar_acesso_documento` (`api/services/authorization_service.py`).
+
+## 10. Conversa com o Chat (RAG)
+
+A rota `/api/chat` (`POST`) realiza busca semântica contextualizada e geração de respostas em linguagem natural com o método RAG (Retrieval-Augmented Generation).
+
+| Rota | Método | Quem pode | Respostas |
+|---|---|---|---|
+| `/api/chat` | POST | qualquer usuário autenticado | `200`, `400`, `401` |
+
+- Aceita apenas o método `POST` (com ou sem barra final: `/api/chat` ou `/api/chat/`).
+- Exige autenticação Bearer do Keycloak (`401 Unauthorized` caso não autenticado).
+- Extrai os substantivos da última mensagem de `context` utilizando NLP com `spaCy` (`TaggingService.nlp_texto`) para buscar os trechos de documentos mais relevantes à mensagem atual.
+- Filtra estritamente pelos documentos aos quais o usuário possui acesso (`verificar_acesso` por setor/nível ou Operador, além de solicitações aprovadas em `SolicitacaoAcesso`).
+- Utiliza os **três documentos mais relevantes** no método RAG para gerar a resposta em linguagem natural, sem timeout restritivo na requisição.
+
+Exemplo de payload:
+
+```json
+{
+  "context": [
+    "mensagem 1",
+    "resposta do sistema",
+    "resposta do usuario"
+  ]
+}
+```
+
+Exemplo de resposta (`200 OK`):
+
+```json
+{
+  "response": "Resposta gerada em linguagem natural com base nos documentos acessíveis...",
+  "documents": [
+    {
+      "id_documento": 1,
+      "nome": "Manual Técnico.pdf",
+      "setor": "Tecnico",
+      "nivel": "Basico",
+      "pagina": 1,
+      "conteudo": "Trecho relevante do documento..."
+    }
+  ]
+}
+```
+
+## 11. Convenções do projeto
 
 - Mantenha as rotas sob o prefixo `/api/`.
 - Use nomes em português consistentes com os recursos existentes.
@@ -225,3 +336,74 @@ def delete(self, request, id_usuario):
 - Não remova a documentação das rotas existentes ao alterar uma view.
 - Atualize o serializer quando o contrato de entrada ou saída mudar.
 - Evite duplicar manualmente no schema o que já é inferido pelo serializer.
+
+## 12. Busca Especial e Níveis de Acesso (Task 103)
+
+A rota de listagem de documentos (`GET /api/documentos/`) permite filtrar documentos por contexto semântico através do parâmetro `contexto`. Esta é uma funcionalidade de acesso especial.
+
+**Regra de Negócio:**
+- **Usuários com nível Operador NÃO podem utilizar o filtro `contexto`.** Caso um operador envie o parâmetro `contexto`, a API retornará `403 Forbidden`.
+- Usuários comuns (Básico, Comercial, Militar) podem utilizar o filtro normalmente. O resultado da busca já respeita as regras de visibilidade de setor e nível definidas na função `verificar_acesso` (em `api/services/authorization_service.py`).
+
+**Verificação de Acesso Especial (Solicitação Aprovada):**
+Para verificar se um usuário possui acesso especial a um documento (solicitação aprovada), utilize a consulta no Django:
+
+```python
+SolicitacaoAcesso.objects.filter(
+    documento_id=id_documento,
+    usuario_id=request.user.id,
+    approved=True,
+).exists()
+```
+## 13. Consentimento
+
+### GET /api/consentimento
+
+Retorna o termo em vigor e o estado atual de cada cláusula **para o usuário autenticado**.
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Resposta (200):**
+```json
+{
+  "id_termo": 3,
+  "data_criacao": "2026-11-18",
+  "clausulas": [
+    { "id_clausula": 1, "requisito": "coleta_nome", "desc": "Coleta de nome", "obrigatoria": true, "aceita": true },
+    { "id_clausula": 2, "requisito": "coleta_uso_email", "desc": "Coleta e uso do email", "obrigatoria": false, "aceita": null }
+  ]
+}
+```
+
+O campo aceita pode ser:
+
+`true` → o usuário consentiu (último registro = acordo true)
+
+`false` → o usuário revogou (último registro = acordo false)
+
+`null` → o usuário nunca respondeu
+
+### GET /api/consentimento/{id_usuario}
+
+Mesma resposta, mas para o usuário cujo UUID é informado. Útil para operadores/admin consultarem o estado de outro usuário.
+
+### PATCH /api/consentimento
+Atualiza o consentimento do usuário logado. O corpo é um objeto { `"<id_clausula>": true|false }`.
+
+Exemplo de corpo:
+
+```
+{ "1": true, "2": false, "15": true }
+```
+
+Aceita um ou mais pares. Para cada par, o serviço cria um novo registro (Append-Only) no histórico.
+
+Resposta (200): o mesmo formato do GET, já com o estado atualizado.
+
+Erros:
+
+`400` – ID de cláusula não pertence ao termo atual, valor não é boolean ou payload mal formatado.
+
+`500` – erro inesperado.
+
+

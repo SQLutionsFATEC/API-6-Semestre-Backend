@@ -1,9 +1,25 @@
 from django.test import TestCase
+from django.contrib.auth import get_user_model
+from rest_framework.test import APIClient
+from unittest.mock import patch
+
 from api.models import Etiqueta
 
 class EtiquetaApiTest(TestCase):
     def setUp(self):
+        termos_patcher = patch(
+            'api.permissions.AceitouClausulasObrigatorias.has_permission',
+            return_value=True,
+        )
+        termos_patcher.start()
+        self.addCleanup(termos_patcher.stop)
         self.etiqueta = Etiqueta.objects.create(nome='Urgente')
+        usuario = get_user_model().objects.create_user(
+            username='usuario_etiqueta',
+            password='senha123',
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=usuario)
 
     def test_listar_etiquetas(self):
         response = self.client.get('/api/etiquetas/')

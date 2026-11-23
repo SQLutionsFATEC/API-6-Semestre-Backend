@@ -1,0 +1,13 @@
+[
+  {
+    "requisito": "coleta_telefone",
+    "desc": "Coleta de telefone celular para contato operacional e segurança",
+    "obrigatoria": false
+  },
+  {
+    "requisito": "cookies_analiticos",
+    "desc": "Armazenamento de cookies para fins de métricas de navegação",
+    "obrigatoria": false
+  }
+]
+
