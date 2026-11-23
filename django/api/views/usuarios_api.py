@@ -29,15 +29,15 @@ class UsuariosView(APIView):
         if self.request.method == 'DELETE':
             return [IsAuthenticated()]
         
-        return [IsAuthenticated(), IsAdminRole()]
+        return [IsAuthenticated(), IsOperadorOrAdminRole()]
 
     @extend_schema(
         summary='Lista usuários do Keycloak (admin)',
         description=(
             'Retorna os usuários cadastrados no realm, com nome, email, '
             'nivel_acesso e setor. O parâmetro busca filtra por trecho do '
-            'nome, email ou username. Acesso restrito à realm role admin '
-            '(retorna 403 sem a role).'
+            'nome, email ou username. Acesso restrito às realm roles operador '
+            'ou admin (retorna 403 sem uma dessas roles).'
         ),
         responses={
             200: UsuarioSerializer(many=True),
