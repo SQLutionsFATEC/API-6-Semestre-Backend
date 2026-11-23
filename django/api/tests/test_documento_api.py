@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from api.models import Documento, Etiqueta
+from api.models import Documento, Etiqueta, SolicitacaoAcesso
 
 
 class DocumentoAutorizacaoTest(TestCase):
@@ -1009,3 +1009,125 @@ class DocumentoAuthorizationTest(TestCase):
             f'/api/documentos/{self.doc_ti_militar.id_documento}/'
         )
         self.assertEqual(response.status_code, 200)
+
+
+class DocumentoAcessoEspecialTest(TestCase):
+    """Solicitação de acesso aprovada libera documentos fora do setor/nível."""
+
+    def setUp(self):
+        termos_patcher = patch(
+            'api.permissions.AceitouClausulasObrigatorias.has_permission',
+            return_value=True,
+        )
+        termos_patcher.start()
+        self.addCleanup(termos_patcher.stop)
+        self.client = APIClient()
+        User = get_user_model()
+
+        self.usuario = User.objects.create_user(
+            username='usuario_acesso', password='senha123'
+        )
+        self.usuario.setor = 'tecnico'
+        self.usuario.nivel = 'Basico'
+
+        self.outro_usuario = User.objects.create_user(
+            username='outro_acesso', password='senha123'
+        )
+        self.outro_usuario.setor = 'tecnico'
+        self.outro_usuario.nivel = 'Basico'
+
+        self.documento = Documento.objects.create(
+            tipo_arquivo='pdf',
+            nome='Acesso Restrito.pdf',
+            setor='tecnico',
+            nivel='Militar',
+            data='documentos/restrito.pdf',
+        )
+
+        self.solicitacao = SolicitacaoAcesso.objects.create(
+            documento=self.documento,
+            usuario_id=str(self.usuario.id),
+        )
+
+    def _documento_na_listagem(self, response):
+        documentos = {
+            doc['id_documento']: doc for doc in response.json()['results']
+        }
+        return documentos[self.documento.id_documento]
+
+    def test_listagem_nega_acesso_com_solicitacao_pendente(self):
+        self.client.force_authenticate(user=self.usuario)
+
+        response = self.client.get('/api/documentos/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self._documento_na_listagem(response)['acesso_permitido'])
+
+    def test_listagem_libera_acesso_com_solicitacao_aprovada(self):
+        self.solicitacao.approved = True
+        self.solicitacao.save(update_fields=['approved'])
+        self.client.force_authenticate(user=self.usuario)
+
+        response = self.client.get('/api/documentos/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self._documento_na_listagem(response)['acesso_permitido'])
+
+    def test_detalhe_nega_arquivo_com_solicitacao_pendente(self):
+        self.client.force_authenticate(user=self.usuario)
+
+        response = self.client.get(
+            f'/api/documentos/{self.documento.id_documento}/'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['acesso_permitido'])
+        self.assertNotIn('data', response.json())
+
+    def test_detalhe_libera_arquivo_com_solicitacao_aprovada(self):
+        self.solicitacao.approved = True
+        self.solicitacao.save(update_fields=['approved'])
+        self.client.force_authenticate(user=self.usuario)
+
+        response = self.client.get(
+            f'/api/documentos/{self.documento.id_documento}/'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['acesso_permitido'])
+        self.assertIn('data', response.json())
+
+    def test_solicitacao_aprovada_de_outro_usuario_nao_libera_acesso(self):
+        self.solicitacao.usuario_id = str(self.outro_usuario.id)
+        self.solicitacao.approved = True
+        self.solicitacao.save(update_fields=['usuario_id', 'approved'])
+        self.client.force_authenticate(user=self.usuario)
+
+        listagem = self.client.get('/api/documentos/')
+        detalhe = self.client.get(
+            f'/api/documentos/{self.documento.id_documento}/'
+        )
+
+        self.assertFalse(self._documento_na_listagem(listagem)['acesso_permitido'])
+        self.assertFalse(detalhe.json()['acesso_permitido'])
+        self.assertNotIn('data', detalhe.json())
+
+    def test_aprovacao_via_patch_do_operador_libera_acesso(self):
+        operador = get_user_model().objects.create_user(
+            username='operador_aprovador', password='senha123'
+        )
+        operador.setor = 'tecnico'
+        operador.nivel = 'Operador'
+        self.client.force_authenticate(user=operador)
+
+        resposta_patch = self.client.patch(
+            f'/api/solicitacoes-acesso/{self.solicitacao.id}/',
+            data={'approved': True},
+            format='json',
+        )
+        self.assertEqual(resposta_patch.status_code, 200)
+
+        self.client.force_authenticate(user=self.usuario)
+        response = self.client.get('/api/documentos/')
+
+        self.assertTrue(self._documento_na_listagem(response)['acesso_permitido'])

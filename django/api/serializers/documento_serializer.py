@@ -6,7 +6,10 @@ from api.validators.documento_validator import (
     validar_arquivo_documento,
     validar_tipo_arquivo,
 )
-from api.services.authorization_service import verificar_acesso
+from api.services.authorization_service import (
+    verificar_acesso,
+    verificar_acesso_documento,
+)
 
 
 class DocumentoSerializer(serializers.ModelSerializer):
@@ -79,10 +82,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
         if not request or not request.user:
             return verificar_acesso(None, None, obj.setor, obj.nivel)
 
-        setor_usuario = getattr(request.user, 'setor', None)
-        nivel_usuario = getattr(request.user, 'nivel', None)
-
-        return verificar_acesso(setor_usuario, nivel_usuario, obj.setor, obj.nivel)
+        return verificar_acesso_documento(request.user, obj)
 
     def validate_data(self, value):
         return validar_arquivo_documento(value)

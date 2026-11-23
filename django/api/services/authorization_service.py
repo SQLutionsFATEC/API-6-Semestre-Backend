@@ -1,3 +1,5 @@
+from api.models import SolicitacaoAcesso
+
 # Hierarquia de níveis
 NIVEL_HIERARQUIA = {
     'Basico': 1,
@@ -39,3 +41,31 @@ def verificar_acesso(
         return True
 
     return False
+
+
+def possui_solicitacao_aprovada(usuario_id, id_documento) -> bool:
+    """Indica se existe solicitação de acesso aprovada para o usuário/documento."""
+
+    if not usuario_id or id_documento is None:
+        return False
+
+    return SolicitacaoAcesso.objects.filter(
+        documento_id=id_documento,
+        usuario_id=str(usuario_id),
+        approved=True,
+    ).exists()
+
+
+def verificar_acesso_documento(usuario, documento) -> bool:
+    """Acesso ao documento: regra de setor/nível ou solicitação aprovada."""
+
+    setor_usuario = getattr(usuario, 'setor', None)
+    nivel_usuario = getattr(usuario, 'nivel', None)
+
+    if verificar_acesso(setor_usuario, nivel_usuario, documento.setor, documento.nivel):
+        return True
+
+    return possui_solicitacao_aprovada(
+        getattr(usuario, 'id', None),
+        documento.pk,
+    )

@@ -275,6 +275,14 @@ SolicitacaoAcesso.objects.filter(
 ).exists()
 ```
 
+Essa verificação é aplicada às rotas de documentos: a regra de acesso é
+`(Setor Usuário == Setor Doc E Nível Usuário >= Nível Doc) OU Nível Usuário ==
+Operador OU solicitação de acesso aprovada`. Em `GET /api/documentos/`, o campo
+`acesso_permitido` retorna `true` quando a solicitação do usuário autenticado
+para aquele documento está aprovada; em `GET /api/documentos/{id_documento}/`,
+o arquivo (`data`) também é retornado nesse caso. A implementação está em
+`verificar_acesso_documento` (`api/services/authorization_service.py`).
+
 ## 10. Conversa com o Chat (RAG)
 
 A rota `/api/chat` (`POST`) realiza busca semântica contextualizada e geração de respostas em linguagem natural com o método RAG (Retrieval-Augmented Generation).
@@ -329,7 +337,7 @@ Exemplo de resposta (`200 OK`):
 - Atualize o serializer quando o contrato de entrada ou saída mudar.
 - Evite duplicar manualmente no schema o que já é inferido pelo serializer.
 
-## 11. Busca Especial e Níveis de Acesso (Task 103)
+## 12. Busca Especial e Níveis de Acesso (Task 103)
 
 A rota de listagem de documentos (`GET /api/documentos/`) permite filtrar documentos por contexto semântico através do parâmetro `contexto`. Esta é uma funcionalidade de acesso especial.
 
@@ -347,7 +355,7 @@ SolicitacaoAcesso.objects.filter(
     approved=True,
 ).exists()
 ```
-## 12. Consentimento
+## 13. Consentimento
 
 ### GET /api/consentimento
 
