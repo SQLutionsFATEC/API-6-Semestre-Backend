@@ -1,12 +1,16 @@
 """Testes unitários da modelagem e regras de negócio de Consentimento do Usuário."""
 
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 
 from api.models import Clausula, Consentimento, Termo
 from api.services.consentimento import (
     ConsentimentoService,
     consentir_clausulas,
     obter_consentimentos_usuario,
+    obter_historico_consentimentos_usuario,
     rescindir_consentimento,
     verificar_consentimento,
 )
@@ -79,6 +83,54 @@ def test_consentimento_e_revogacao_preserva_historico_e_retorna_negado(estado_in
 
     assert verificar_consentimento(ID_USUARIO, c_obrig.requisito) is False
     assert verificar_consentimento(ID_USUARIO, c_opc.requisito) is False
+
+
+@pytest.mark.django_db
+def test_historico_associa_eventos_aos_termos_do_periodo(estado_inicial):
+    termo_inicial = estado_inicial['termo']
+    clausula = estado_inicial['clausula_obrigatoria']
+    agora = timezone.now()
+    inicio = agora - timedelta(days=4)
+    aceite = agora - timedelta(days=3, hours=12)
+    meio = agora - timedelta(days=3)
+    recusa = agora - timedelta(days=2, hours=12)
+    fim = agora - timedelta(days=2)
+
+    Termo.objects.filter(pk=termo_inicial.pk).update(data_criacao=inicio)
+    consentir_clausulas(ID_USUARIO, [clausula.id_clausula])
+    Consentimento.objects.filter(
+        id_usuario=ID_USUARIO,
+        id_clausula=clausula,
+        acordo=True,
+    ).update(timestamp_consentimento=aceite)
+
+    termo_intermediario = criar_clausula('nova_intermediaria', 'Cláusula nova')
+    Termo.objects.filter(pk=termo_intermediario.pk).update(data_criacao=meio)
+    rescindir_consentimento(ID_USUARIO, [clausula.id_clausula])
+    Consentimento.objects.filter(
+        id_usuario=ID_USUARIO,
+        id_clausula=clausula,
+        acordo=False,
+    ).update(timestamp_consentimento=recusa)
+
+    termo_final = criar_clausula('nova_final', 'Outra cláusula')
+    Termo.objects.filter(pk=termo_final.pk).update(data_criacao=fim)
+
+    historico = obter_historico_consentimentos_usuario(ID_USUARIO)
+
+    assert len(historico) == 2
+    assert historico[0]['consentimento'].acordo is True
+    assert historico[0]['fim_periodo'] == recusa
+    assert [termo.id_termo for termo in historico[0]['termos']] == [
+        termo_inicial.id_termo,
+        termo_intermediario.id_termo,
+    ]
+    assert historico[1]['consentimento'].acordo is False
+    assert historico[1]['fim_periodo'] is None
+    assert [termo.id_termo for termo in historico[1]['termos']] == [
+        termo_intermediario.id_termo,
+        termo_final.id_termo,
+    ]
 
 
 @pytest.mark.django_db

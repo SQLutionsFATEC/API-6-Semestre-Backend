@@ -24,7 +24,7 @@ class ClausulaConsentimentoSerializer(serializers.ModelSerializer):
 class TermoConsentimentoSerializer(serializers.Serializer):
     """Serializa o termo em vigor junto com o estado de todas as suas cláusulas."""
     id_termo = serializers.IntegerField(read_only=True)
-    data_criacao = serializers.DateField(read_only=True)
+    data_criacao = serializers.DateTimeField(read_only=True)
     clausulas = ClausulaConsentimentoSerializer(many=True, read_only=True)
 
 

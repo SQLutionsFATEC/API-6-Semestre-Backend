@@ -2,6 +2,7 @@
 
 Este módulo implementa a API interna (não HTTP) que permite:
   - Consultar o estado atual de consentimento de um usuário;
+  - Consultar o histórico de aceites/recusas e inferir os termos vigentes em cada período;
   - Validar se o usuário consente com um requisito específico;
   - Registrar o consentimento ou a revogação de uma ou mais cláusulas.
 
@@ -10,10 +11,13 @@ ação, um novo registro com timestamp é inserido. O estado atual é definido
 pelo registro mais recente para cada par (usuário, cláusula).
 """
 
+from bisect import bisect_left, bisect_right
+from collections import defaultdict
+
 from django.db import transaction
 from django.db.models import OuterRef, Subquery
 
-from api.models import Clausula, Consentimento
+from api.models import Clausula, Consentimento, Termo
 from api.services.termo_consentimento import obter_termo_atual, _extrair_id_clausula
 
 
@@ -101,6 +105,84 @@ def obter_consentimentos_usuario(id_usuario):
     ]
 
 
+def obter_historico_consentimentos_usuario(id_usuario):
+    """Retorna eventos de consentimento com os termos associados a cada período.
+
+    O período de cada evento termina na próxima decisão do mesmo usuário para
+    a mesma cláusula. Como o consentimento não referencia diretamente um Termo,
+    as versões são inferidas pelos timestamps de criação dos termos.
+    """
+    if not id_usuario:
+        raise ValueError('O ID do usuário é obrigatório.')
+
+    eventos = list(
+        Consentimento.objects.filter(id_usuario=id_usuario)
+        .select_related('id_clausula')
+        .order_by('timestamp_consentimento', 'id_consentimento')
+    )
+    if not eventos:
+        return []
+
+    termos = list(
+        Termo.objects.prefetch_related('clausulas')
+        .order_by('data_criacao', 'id_termo')
+    )
+    timestamps_termos = [termo.data_criacao for termo in termos]
+    clausulas_por_termo = {
+        termo.id_termo: {
+            clausula.id_clausula for clausula in termo.clausulas.all()
+        }
+        for termo in termos
+    }
+
+    eventos_por_clausula = defaultdict(list)
+    for evento in eventos:
+        eventos_por_clausula[evento.id_clausula_id].append(evento)
+
+    proximo_evento = {}
+    for eventos_clausula in eventos_por_clausula.values():
+        for indice, evento in enumerate(eventos_clausula):
+            proximo_evento[evento.id_consentimento] = (
+                eventos_clausula[indice + 1]
+                if indice + 1 < len(eventos_clausula)
+                else None
+            )
+
+    historico = []
+    for evento in eventos:
+        proximo = proximo_evento[evento.id_consentimento]
+        indice_inicio = bisect_right(
+            timestamps_termos,
+            evento.timestamp_consentimento,
+        ) - 1
+        if indice_inicio < 0:
+            termos_periodo = []
+        else:
+            indice_fim = (
+                bisect_left(timestamps_termos, proximo.timestamp_consentimento) - 1
+                if proximo is not None
+                else len(termos) - 1
+            )
+            indice_fim = max(indice_inicio, indice_fim)
+            termos_periodo = [
+                termo
+                for termo in termos[indice_inicio:indice_fim + 1]
+                if evento.id_clausula_id in clausulas_por_termo[termo.id_termo]
+            ]
+
+        historico.append(
+            {
+                'consentimento': evento,
+                'fim_periodo': (
+                    proximo.timestamp_consentimento if proximo is not None else None
+                ),
+                'termos': termos_periodo,
+            }
+        )
+
+    return historico
+
+
 def verificar_consentimento(id_usuario, requisito):
     """Valida se o usuário consentiu com uma cláusula específica (pelo requisito).
 
@@ -131,4 +213,7 @@ class ConsentimentoService:
     consentir_clausulas = staticmethod(consentir_clausulas)
     rescindir_consentimento = staticmethod(rescindir_consentimento)
     obter_consentimentos_usuario = staticmethod(obter_consentimentos_usuario)
+    obter_historico_consentimentos_usuario = staticmethod(
+        obter_historico_consentimentos_usuario
+    )
     verificar_consentimento = staticmethod(verificar_consentimento)

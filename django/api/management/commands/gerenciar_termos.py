@@ -7,12 +7,18 @@ Exemplos de uso:
   # Listar o termo e cláusulas em vigor
   python manage.py gerenciar_termos listar
 
+  # Exibir o histórico completo dos termos em ordem cronológica
+  python manage.py gerenciar_termos historico
+
   # Criar uma cláusula diretamente pela linha de comando
   python manage.py gerenciar_termos criar --requisito "coleta_telefone" --desc "Coleta de telefone celular"
   python manage.py gerenciar_termos criar --requisito "termos_uso" --desc "Termos de Uso Obrigatórios" --obrigatoria
 
   # Criar uma ou mais cláusulas a partir de um arquivo JSON
   python manage.py gerenciar_termos criar --json "caminho/para/clausulas.json"
+
+  # Criar um novo termo do zero com cláusulas próprias
+  python manage.py gerenciar_termos criar-termo --json "caminho/para/clausulas.json"
 
   # Atualizar uma cláusula existente (cria uma nova versão preservando o histórico)
   python manage.py gerenciar_termos atualizar 2 --desc "Nova descrição da cláusula"
@@ -32,8 +38,10 @@ from api.services.termo_consentimento import (
     atualizar_clausula,
     criar_clausula,
     criar_clausulas,
+    criar_termo_do_zero,
     garantir_termo_inicial,
     listar_clausulas_atuais,
+    listar_termos,
     obter_termo_atual,
     remover_clausula,
     remover_clausulas,
@@ -50,19 +58,21 @@ class Command(BaseCommand):
             help='Ação a ser executada',
         )
 
-        # ----------------- SUBCOMANDO: INICIALIZAR -----------------
         subparsers.add_parser(
             'inicializar',
             help='Garante a existência do termo preliminar (Termo #1) com as cláusulas padrão.',
         )
 
-        # ----------------- SUBCOMANDO: LISTAR -----------------
         subparsers.add_parser(
             'listar',
             help='Exibe o termo atual em vigor e todas as suas cláusulas ativas.',
         )
 
-        # ----------------- SUBCOMANDO: CRIAR -----------------
+        subparsers.add_parser(
+            'historico',
+            help='Exibe todos os termos e suas cláusulas em ordem cronológica.',
+        )
+
         parser_criar = subparsers.add_parser(
             'criar',
             help='Adiciona uma ou mais cláusulas gerando uma nova versão do Termo.',
@@ -90,7 +100,18 @@ class Command(BaseCommand):
             help='Caminho para um arquivo .json contendo uma cláusula ou lista de cláusulas.',
         )
 
-        # ----------------- SUBCOMANDO: ATUALIZAR -----------------
+        parser_criar_termo = subparsers.add_parser(
+            'criar-termo',
+            help='Cria uma nova versão do Termo somente com as cláusulas informadas.',
+        )
+        parser_criar_termo.add_argument(
+            '--json',
+            dest='caminho_json',
+            type=str,
+            required=True,
+            help='Caminho para um .json com uma cláusula ou uma lista não vazia de cláusulas.',
+        )
+
         parser_atualizar = subparsers.add_parser(
             'atualizar',
             help='Atualiza uma cláusula criando uma nova versão (mantém o histórico íntegro).',
@@ -128,7 +149,6 @@ class Command(BaseCommand):
             help='Define a cláusula como opcional.',
         )
 
-        # ----------------- SUBCOMANDO: REMOVER -----------------
         parser_remover = subparsers.add_parser(
             'remover',
             help='Remove uma ou mais cláusulas do termo atual gerando uma nova versão.',
@@ -148,8 +168,12 @@ class Command(BaseCommand):
                 self._handle_inicializar()
             elif acao == 'listar':
                 self._handle_listar()
+            elif acao == 'historico':
+                self._handle_historico()
             elif acao == 'criar':
                 self._handle_criar(options)
+            elif acao == 'criar-termo':
+                self._handle_criar_termo(options)
             elif acao == 'atualizar':
                 self._handle_atualizar(options)
             elif acao == 'remover':
@@ -197,6 +221,19 @@ class Command(BaseCommand):
         clausulas = listar_clausulas_atuais()
         self._imprimir_termo_e_clausulas(termo, clausulas)
 
+    def _handle_historico(self):
+        """Exibe os termos e suas cláusulas em ordem cronológica."""
+        termos = listar_termos()
+        if not termos:
+            self.stdout.write(self.style.WARNING('Nenhum termo encontrado no histórico.'))
+            return
+
+        self.stdout.write(
+            self.style.SUCCESS('Histórico dos termos (mais antigo para o atual):')
+        )
+        for termo in termos:
+            self._imprimir_termo_e_clausulas(termo)
+
     def _handle_criar(self, options):
         caminho_json = options.get('caminho_json')
         requisito = options.get('requisito')
@@ -228,6 +265,21 @@ class Command(BaseCommand):
             obrigatoria=obrigatoria,
         )
         self.stdout.write(self.style.SUCCESS('Cláusula criada com sucesso!'))
+        self._imprimir_termo_e_clausulas(novo_termo)
+
+    def _handle_criar_termo(self, options):
+        """Cria um termo novo usando somente as cláusulas fornecidas no JSON."""
+        caminho_json = options['caminho_json']
+        if not os.path.exists(caminho_json):
+            raise CommandError(f'Arquivo JSON não encontrado: {caminho_json}')
+        try:
+            with open(caminho_json, 'r', encoding='utf-8') as arquivo:
+                conteudo = json.load(arquivo)
+        except (OSError, json.JSONDecodeError) as erro:
+            raise CommandError(f'Falha ao ler o arquivo JSON: {erro}')
+
+        novo_termo = criar_termo_do_zero(conteudo)
+        self.stdout.write(self.style.SUCCESS('Termo criado do zero com sucesso!'))
         self._imprimir_termo_e_clausulas(novo_termo)
 
     def _handle_atualizar(self, options):
