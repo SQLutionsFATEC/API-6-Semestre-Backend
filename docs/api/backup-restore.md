@@ -20,6 +20,26 @@ Para impedir isso existe um **banco independente de tombstones** (alias Django `
 
 O banco de tombstones não entra no fluxo normal de restauração. O script de restore apenas **mescla** os tombstones do backup (união), de modo que uma restauração antiga não consiga apagar exclusões mais recentes.
 
+### 1.1 Banco separado dos avisos de vazamento
+
+Os avisos de vazamento também vivem em um banco independente (alias Django `leaks`, serviço `leak-db` no compose). O motivo é o próprio fluxo de resposta ao incidente: ao registrar um vazamento, o sistema restaura o último backup do banco da aplicação. Se o incidente ficasse no banco restaurado, o registro do vazamento seria apagado junto — e o sistema deixaria de saber que houve um vazamento.
+
+O banco `leaks` **nunca** é restaurado nem mesclado pelo `restore.sh`; ele guarda apenas a tabela `vazamentos` (id UUID e timestamp completo do incidente). Somente o model `Vazamento` é lido/escrito nesse alias (`api.db_routers.VazamentoRouter`).
+
+```text
+┌─────────────────────┐        ┌──────────────────────────┐
+│ Banco da aplicação  │        │ Banco de vazamentos      │
+│ documentos, tags,   │        │ id + timestamp do        │
+│ chunks, termos      │        │ incidente                │
+└─────────────────────┘        └──────────────────────────┘
+        │                               │
+   restaurado pelo                 NUNCA é restaurado
+   restore.sh (vazamento)                 │
+        └──────── registro sobrevive ────┘
+```
+
+Como o registro usa `DateTimeField` com `USE_TZ=True`, o timestamp é gravado em UTC com data **e** hora (inclusive microssegundos), e não apenas a data.
+
 ## 2. Anonimização
 
 O tombstone guarda somente:
@@ -82,7 +102,7 @@ Fluxo do script:
 2. para `backend` e `keycloak`;
 3. restaura `app.dump` e `keycloak.dump` com `pg_restore --clean`;
 4. restaura `media.tar.gz`;
-5. aplica as migrations (inclusive `--database=tombstones`);
+5. aplica as migrations (inclusive `--database=tombstones` e `--database=leaks`);
 6. copia `tombstones.csv` para o banco independente e faz `INSERT ... ON CONFLICT DO UPDATE` (união, nunca remoção; como o CSV só contém confirmados, um tombstone pendente com o mesmo hash é promovido a confirmado);
 7. sobe o Keycloak e o backend;
 8. executa:
@@ -147,12 +167,18 @@ docker compose exec -T backend python manage.py purge_deleted_users --dry-run
 | `DELETED_USERS_DB_PASSWORD` | mesma senha do banco da aplicação | senha do banco de tombstones |
 | `DELETED_USERS_DB_HOST` | `tombstone-db` (compose) | host do banco de tombstones |
 | `DELETED_USERS_DB_PORT` | `5432` | porta do banco de tombstones |
+| `LEAKS_DB_NAME` | `leaks_db` | nome do banco de avisos de vazamento |
+| `LEAKS_DB_USER` | mesmo usuário do banco da aplicação | usuário do banco de vazamentos |
+| `LEAKS_DB_PASSWORD` | mesma senha do banco da aplicação | senha do banco de vazamentos |
+| `LEAKS_DB_HOST` | `leak-db` (compose) | host do banco de vazamentos |
+| `LEAKS_DB_PORT` | `5432` | porta do banco de vazamentos |
 | `EMAIL_BACKEND` | console (dev) | backend de e-mail; use SMTP em produção |
 | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` | — | SMTP |
 | `DEFAULT_FROM_EMAIL` | `nao-responda@sqlutions.example.com` | remetente da comprovação |
 
 ## 6. Limitações e cuidados
 
+- **O banco de vazamentos é a garantia do aviso.** Assim como o de tombstones, ele precisa de backup próprio (fora do fluxo do `restore.sh`) e de acesso restrito; se ele for perdido, o sistema deixa de reconhecer o último vazamento.
 - **O banco de tombstones é a garantia.** Se ele for perdido ou restaurado para um estado antigo, os dados pessoais de um usuário anonimizado podem voltar. Faça backup dele separadamente, com retenção append-only, e restrinja o acesso.
 - **Tombstones pendentes não são prova de exclusão.** Eles indicam que o tombstone foi criado, mas o Keycloak não confirmou a anonimização. Se houver pendentes antigos, investigue antes de tratá-los como concluídos.
 - **Backups antigos não distinguem pendentes.** O CSV de 3 colunas gerado antes desta mudança não tem `confirmado_em`; o restore trata essas linhas como confirmadas para preservar o comportamento anterior. Apenas backups novos excluem tombstones pendentes.

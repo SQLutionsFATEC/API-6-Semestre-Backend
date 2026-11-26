@@ -1,18 +1,28 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.db import connections
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 from unittest.mock import patch, mock_open
+
+from api.db_routers import VAZAMENTO_DB
 from api.models import Vazamento
+from api.serializers.vazamento_serializer import VazamentoSerializer
 from io import StringIO
-from django.core.management import call_command
-import os
 
 UserModel = get_user_model()
 
+
 class VazamentoViewTests(APITestCase):
+    # Os avisos de vazamento vivem no banco independente 'leaks'.
+    databases = {'default', VAZAMENTO_DB}
+
     def setUp(self):
         self.url = '/api/vazamentos/'
-        self.vazamento = Vazamento.objects.create()
+        self.vazamento = Vazamento.objects.using(VAZAMENTO_DB).create()
         self.user = UserModel.objects.create_user(
             username='testuser',
             password='testpassword'
@@ -25,7 +35,7 @@ class VazamentoViewTests(APITestCase):
         self.assertEqual(response.data['id'], str(self.vazamento.id))
 
     def test_get_sem_vazamentos_retorna_404(self):
-        Vazamento.objects.all().delete()
+        Vazamento.objects.using(VAZAMENTO_DB).all().delete()
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -50,6 +60,9 @@ class VazamentoViewTests(APITestCase):
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_sinalizar.assert_called_once()
+        self.assertTrue(
+            Vazamento.objects.using(VAZAMENTO_DB).filter(pk=response.data['id']).exists()
+        )
 
     @patch('api.views.vazamento_api.keycloak_admin.listar_papeis_realm_usuario')
     def test_post_falha_keycloak_retorna_502(self, mock_roles):
@@ -64,7 +77,7 @@ class VazamentoViewTests(APITestCase):
         # Simula o operador, mas faz a criação do arquivo de sinalização falhar
         mock_roles.return_value = ['operador']
         mock_sinalizar.side_effect = Exception("Falha ao criar o arquivo de flag")
-        
+
         self.client.force_authenticate(user=self.user)
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -76,8 +89,35 @@ class VazamentoViewTests(APITestCase):
         self.assertIn('Incidente registrado com sucesso!', out.getvalue())
         mock_sinalizar.assert_called_once()
 
+    @patch('api.management.commands.generate_leak._sinalizar_restauracao_backup')
+    def test_comando_generate_leak_grava_no_banco_de_vazamentos(self, mock_sinalizar):
+        antes = Vazamento.objects.using(VAZAMENTO_DB).count()
+        call_command('generate_leak', stdout=StringIO())
+        self.assertEqual(Vazamento.objects.using(VAZAMENTO_DB).count(), antes + 1)
+
+    def test_vazamento_e_gravado_apenas_no_banco_de_leaks(self):
+        self.assertTrue(
+            Vazamento.objects.using(VAZAMENTO_DB).filter(pk=self.vazamento.pk).exists()
+        )
+        # A tabela não existe no banco principal: uma restauração de backup do
+        # banco da aplicação não pode apagar o registro do vazamento.
+        self.assertNotIn(
+            'vazamentos', connections['default'].introspection.table_names()
+        )
+
+    def test_timestamp_registra_data_e_hora_completas(self):
+        vazamento = Vazamento.objects.using(VAZAMENTO_DB).create()
+
+        self.assertIsNotNone(vazamento.timestamp.tzinfo)
+        self.assertLess(
+            abs(timezone.now() - vazamento.timestamp), timedelta(minutes=1)
+        )
+        # O valor exposto pela API é um datetime completo (data + hora), não
+        # apenas a data.
+        self.assertIn('T', VazamentoSerializer(vazamento).data['timestamp'])
+
     def test_modelo_vazamento_str(self):
-        vazamento = Vazamento.objects.first()
+        vazamento = Vazamento.objects.using(VAZAMENTO_DB).first()
         self.assertTrue(str(vazamento).startswith('Vazamento'))
 
     @patch('api.views.vazamento_api.keycloak_admin.listar_papeis_realm_usuario')
@@ -87,9 +127,9 @@ class VazamentoViewTests(APITestCase):
         """Garante que o arquivo TRIGGER_RESTORE.flag é criado quando não há erros."""
         mock_roles.return_value = ['operador']
         self.client.force_authenticate(user=self.user)
-        
+
         response = self.client.post(self.url)
-        
+
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         # Verifica se o open() foi chamado com o nome do arquivo correto
         mock_file.assert_called_once_with('/app/backups/TRIGGER_RESTORE.flag', 'w')

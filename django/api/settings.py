@@ -116,11 +116,34 @@ DATABASES = {
         'PORT': os.environ.get('DELETED_USERS_DB_PORT', '5432'),
         'CONN_MAX_AGE': 60,
     },
+    # Banco independente usado apenas para os avisos de vazamento. Ele NUNCA é
+    # restaurado junto com os backups da aplicação: restaurar o backup é parte
+    # do fluxo de resposta ao vazamento, então o registro do incidente precisa
+    # sobreviver a essa restauração.
+    'leaks': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('LEAKS_DB_NAME', 'leaks_db'),
+        'USER': os.environ.get(
+            'LEAKS_DB_USER',
+            os.environ.get('DB_USER', os.environ.get('POSTGRES_USER', 'api_user')),
+        ),
+        'PASSWORD': os.environ.get(
+            'LEAKS_DB_PASSWORD',
+            os.environ.get('DB_PASSWORD', os.environ.get('POSTGRES_PASSWORD')),
+        ),
+        'HOST': os.environ.get('LEAKS_DB_HOST', 'leak-db'),
+        'PORT': os.environ.get('LEAKS_DB_PORT', '5432'),
+        'CONN_MAX_AGE': 60,
+    },
 }
 
-# O model UsuarioDeletado só existe no banco 'tombstones'; os demais models
-# continuam exclusivamente no banco 'default'.
-DATABASE_ROUTERS = ['api.db_routers.TombstoneRouter']
+# O model UsuarioDeletado só existe no banco 'tombstones' e o model Vazamento
+# só existe no banco 'leaks'; os demais models continuam exclusivamente no
+# banco 'default'.
+DATABASE_ROUTERS = [
+    'api.db_routers.VazamentoRouter',
+    'api.db_routers.TombstoneRouter',
+]
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
