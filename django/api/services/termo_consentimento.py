@@ -2,8 +2,11 @@
 
 Os termos de consentimento e suas cláusulas são imutáveis:
   - o termo em vigor é sempre o de maior ``id_termo``;
+  - listar todos os termos os retorna em ordem crescente de versão;
   - adicionar uma ou mais cláusulas cria as novas cláusulas e gera uma única
     nova versão de ``Termo`` mantendo as cláusulas anteriores;
+  - criar um termo do zero gera uma única versão contendo somente as cláusulas
+    fornecidas, sem remover nem reutilizar as cláusulas atuais;
   - remover uma ou mais cláusulas gera uma única nova versão de ``Termo`` sem
     as cláusulas removidas, preservando os registros antigos no banco;
   - atualizar uma cláusula cria um novo registro de ``Clausula`` e uma nova
@@ -89,13 +92,14 @@ def listar_clausulas_atuais():
     return list(termo.clausulas.all().order_by('id_clausula'))
 
 
-@transaction.atomic
-def criar_clausulas(clausulas):
-    """Cria uma ou mais cláusulas e gera uma única nova versão do Termo.
+def listar_termos():
+    """Retorna todos os termos em ordem cronológica, do mais antigo ao atual."""
+    return list(
+        Termo.objects.prefetch_related('clausulas').order_by('id_termo')
+    )
 
-     ``clausulas`` pode ser um dicionário único ou uma lista/iterável de
-    dicionários contendo ``requisito``, ``desc`` e opcionalmente ``obrigatoria``.
-    """
+
+def _validar_clausulas(clausulas):
     if isinstance(clausulas, dict):
         lista_clausulas = [clausulas]
     elif isinstance(clausulas, (list, tuple)):
@@ -114,29 +118,54 @@ def criar_clausulas(clausulas):
         desc = (item.get('desc') or '').strip()
         if not requisito or not desc:
             raise ValueError('Os campos "requisito" e "desc" são obrigatórios.')
-        obrigatoria = bool(item.get('obrigatoria', False))
         dados_validados.append(
             {
                 'requisito': requisito,
                 'desc': desc,
-                'obrigatoria': obrigatoria,
+                'obrigatoria': bool(item.get('obrigatoria', False)),
             }
         )
+    return dados_validados
 
-    termo_atual = obter_termo_atual()
-    clausulas_atuais = list(termo_atual.clausulas.all().order_by('id_clausula'))
 
-    novas_clausulas = [
+def _criar_registros_clausula(dados_clausulas):
+    return [
         Clausula.objects.create(
             requisito=dados['requisito'],
             desc=dados['desc'],
             obrigatoria=dados['obrigatoria'],
         )
-        for dados in dados_validados
+        for dados in dados_clausulas
     ]
+
+
+@transaction.atomic
+def criar_clausulas(clausulas):
+    """Cria uma ou mais cláusulas e gera uma única nova versão do Termo.
+
+    ``clausulas`` pode ser um dicionário único ou uma lista/iterável de
+    dicionários contendo ``requisito``, ``desc`` e opcionalmente ``obrigatoria``.
+    """
+    dados_validados = _validar_clausulas(clausulas)
+
+    termo_atual = obter_termo_atual()
+    clausulas_atuais = list(termo_atual.clausulas.all().order_by('id_clausula'))
+
+    novas_clausulas = _criar_registros_clausula(dados_validados)
 
     novo_termo = Termo.objects.create()
     novo_termo.clausulas.set(clausulas_atuais + novas_clausulas)
+    return Termo.objects.prefetch_related('clausulas').get(pk=novo_termo.pk)
+
+
+@transaction.atomic
+def criar_termo_do_zero(clausulas):
+    """Cria uma nova versão do Termo somente com as cláusulas fornecidas."""
+    dados_validados = _validar_clausulas(clausulas)
+    novas_clausulas = _criar_registros_clausula(dados_validados)
+
+    novo_termo = Termo.objects.create()
+    novo_termo.clausulas.set(novas_clausulas)
     return Termo.objects.prefetch_related('clausulas').get(pk=novo_termo.pk)
 
 
@@ -246,7 +275,9 @@ class TermoConsentimentoService:
     garantir_termo_inicial = staticmethod(garantir_termo_inicial)
     obter_termo_atual = staticmethod(obter_termo_atual)
     listar_clausulas_atuais = staticmethod(listar_clausulas_atuais)
+    listar_termos = staticmethod(listar_termos)
     criar_clausulas = staticmethod(criar_clausulas)
+    criar_termo_do_zero = staticmethod(criar_termo_do_zero)
     criar_clausula = staticmethod(criar_clausula)
     remover_clausulas = staticmethod(remover_clausulas)
     remover_clausula = staticmethod(remover_clausula)

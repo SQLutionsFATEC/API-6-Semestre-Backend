@@ -394,11 +394,11 @@ class DocumentoViewSet(ModelViewSet):
                 if isinstance(nivel, str) and nivel.lower() == 'operador':
                     is_operador = True
 
-            if is_operador:
-                return Response(
-                    {"erro": "Operadores não podem utilizar a busca por contexto semântico."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+            # if is_operador:
+            #     return Response(
+            #         {"erro": "Operadores não podem utilizar a busca por contexto semântico."},
+            #         status=status.HTTP_403_FORBIDDEN,
+            #     )
 
         queryset = self.get_queryset()
 

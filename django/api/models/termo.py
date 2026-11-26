@@ -7,7 +7,7 @@ class Termo(models.Model):
     O termo em vigor é sempre o de maior id_termo.
     """
     id_termo = models.BigAutoField(primary_key=True)
-    data_criacao = models.DateField(
+    data_criacao = models.DateTimeField(
         auto_now_add=True,
         help_text="Criado automaticamente no primeiro salvamento"
     )
