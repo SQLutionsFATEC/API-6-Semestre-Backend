@@ -53,6 +53,22 @@ def registrar_consentimento(id_usuario, clausulas_ou_ids, acordo):
             f'Cláusula(s) não encontrada(s) no termo atual: {sorted(ids_invalidos)}'
         )
 
+    estados_atuais = {}
+    consentimentos_anteriores = (
+        Consentimento.objects.filter(
+            id_usuario=id_usuario,
+            id_clausula_id__in=ids_para_registrar,
+        )
+        .order_by(
+            'id_clausula_id',
+            '-timestamp_consentimento',
+            '-id_consentimento',
+        )
+        .values_list('id_clausula_id', 'acordo')
+    )
+    for id_clausula, estado in consentimentos_anteriores:
+        estados_atuais.setdefault(id_clausula, estado)
+
     registros = [
         Consentimento(
             id_usuario=id_usuario,
@@ -60,9 +76,10 @@ def registrar_consentimento(id_usuario, clausulas_ou_ids, acordo):
             acordo=acordo,
         )
         for id_clausula in ids_para_registrar
+        if estados_atuais.get(id_clausula) != acordo
     ]
 
-    return Consentimento.objects.bulk_create(registros)
+    return Consentimento.objects.bulk_create(registros) if registros else []
 
 
 def consentir_clausulas(id_usuario, clausulas_ou_ids):

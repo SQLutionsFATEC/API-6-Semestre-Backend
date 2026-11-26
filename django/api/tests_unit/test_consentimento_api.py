@@ -91,6 +91,38 @@ def test_patch_atualiza_consentimento_e_retorna_estado_atualizado(client_logado,
 
 
 @pytest.mark.django_db
+def test_patch_registra_apenas_clausulas_com_estado_alterado(client_logado, estado_inicial):
+    _, c_obrig, c_opc = estado_inicial
+    usuario = _UsuarioFake("uuid-teste")
+    client_logado.force_authenticate(user=usuario)
+
+    consentir_clausulas(usuario.id, [c_obrig.id_clausula])
+    payload = {
+        str(c_obrig.id_clausula): True,
+        str(c_opc.id_clausula): False,
+    }
+
+    response = client_logado.patch('/api/consentimento', data=payload, format='json')
+
+    assert response.status_code == 200
+    assert Consentimento.objects.filter(id_usuario=usuario.id).count() == 2
+    assert Consentimento.objects.filter(
+        id_usuario=usuario.id,
+        id_clausula=c_obrig,
+    ).count() == 1
+    assert Consentimento.objects.filter(
+        id_usuario=usuario.id,
+        id_clausula=c_opc,
+        acordo=False,
+    ).count() == 1
+
+    response = client_logado.patch('/api/consentimento', data=payload, format='json')
+
+    assert response.status_code == 200
+    assert Consentimento.objects.filter(id_usuario=usuario.id).count() == 2
+
+
+@pytest.mark.django_db
 def test_patch_com_id_invalido_retorna_400(client_logado, estado_inicial):
     _, c_obrig, _ = estado_inicial
     usuario = _UsuarioFake("uuid-teste")
