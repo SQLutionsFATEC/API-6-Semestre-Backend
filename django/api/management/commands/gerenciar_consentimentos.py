@@ -3,30 +3,35 @@
 Exemplos:
   python manage.py gerenciar_consentimentos historico <id_usuario>
   python manage.py gerenciar_consentimentos atual <id_usuario>
+  python manage.py gerenciar_consentimentos registrar <id_usuario> aceitar <id_clausula> [<id_clausula> ...]
+  python manage.py gerenciar_consentimentos registrar <id_usuario> recusar <id_clausula> [<id_clausula> ...]
 
 ``id_usuario`` é o UUID/ID do usuário no Keycloak, o mesmo valor persistido
 nos registros de consentimento. Use o campo ``id`` do usuário no Keycloak
 (ou o claim ``sub``), não o username ou e-mail, que podem ser alterados.
+Os IDs informados para ``registrar`` são de cláusulas do termo atual.
 """
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from api.services.consentimento import (
+    consentir_clausulas,
     obter_consentimentos_usuario,
     obter_historico_consentimentos_usuario,
+    rescindir_consentimento,
 )
 from api.services.termo_consentimento import obter_termo_atual
 
 
 class Command(BaseCommand):
-    help = 'Consulta histórico e estado atual de consentimentos por usuário.'
+    help = 'Consulta e atualiza consentimentos por usuário.'
 
     def add_arguments(self, parser):
-        """Registra as consultas e os IDs de usuário exigidos por cada uma."""
+        """Registra consultas e atualizações de consentimento."""
         subparsers = parser.add_subparsers(
             dest='acao',
             required=True,
-            help='Consulta a ser executada',
+            help='Ação de consentimento a executar',
         )
 
         parser_historico = subparsers.add_parser(
@@ -47,8 +52,29 @@ class Command(BaseCommand):
             help='ID/UUID do usuário no Keycloak (claim sub; não use username/e-mail).',
         )
 
+        parser_registrar = subparsers.add_parser(
+            'registrar',
+            help='Aceita ou recusa uma ou mais cláusulas do termo atual.',
+        )
+        parser_registrar.add_argument(
+            'id_usuario',
+            help='ID/UUID do usuário no Keycloak (claim sub; não use username/e-mail).',
+        )
+        parser_registrar.add_argument(
+            'decisao',
+            choices=('aceitar', 'recusar'),
+            help='Decisão a registrar para as cláusulas informadas.',
+        )
+        parser_registrar.add_argument(
+            'id_clausulas',
+            metavar='ID_CLAUSULA',
+            type=int,
+            nargs='+',
+            help='Um ou mais IDs de cláusulas pertencentes ao termo atual.',
+        )
+
     def handle(self, *args, **options):
-        """Encaminha a execução ao subcomando de consulta selecionado."""
+        """Encaminha a execução à ação selecionada."""
         acao = options['acao']
         id_usuario = options['id_usuario']
 
@@ -56,6 +82,35 @@ class Command(BaseCommand):
             self._handle_historico(id_usuario)
         elif acao == 'atual':
             self._handle_atual(id_usuario)
+        elif acao == 'registrar':
+            self._handle_registrar(
+                id_usuario,
+                options['decisao'],
+                options['id_clausulas'],
+            )
+
+    def _handle_registrar(self, id_usuario, decisao, id_clausulas):
+        """Registra a mesma decisão para as cláusulas fornecidas."""
+        registrar = (
+            consentir_clausulas if decisao == 'aceitar' else rescindir_consentimento
+        )
+        try:
+            registros = registrar(id_usuario, id_clausulas)
+        except ValueError as erro:
+            raise CommandError(str(erro)) from erro
+
+        if registros:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'Decisão "{decisao}" registrada para {len(registros)} '
+                    f'cláusula(s) do usuário {id_usuario}.'
+                )
+            )
+        else:
+            self.stdout.write(
+                f'Nenhuma alteração necessária para as cláusulas do usuário '
+                f'{id_usuario}.'
+            )
 
     def _handle_historico(self, id_usuario):
         """Exibe decisões de consentimento, períodos e termos inferidos."""
