@@ -71,12 +71,19 @@ services:
       - DELETED_USERS_DB_PASSWORD=${POSTGRES_PASSWORD:-senha_padrao}
       - DELETED_USERS_DB_HOST=tombstone-db
       - DELETED_USERS_DB_PORT=5432
+      - LEAKS_DB_NAME=${LEAKS_DB_NAME:-leaks_db}
+      - LEAKS_DB_USER=${POSTGRES_USER:-sqlutions}
+      - LEAKS_DB_PASSWORD=${POSTGRES_PASSWORD:-senha_padrao}
+      - LEAKS_DB_HOST=leak-db
+      - LEAKS_DB_PORT=5432
       - RESTORE_SCRIPT_PATH=/app/deploy/scripts/restore.sh
       - BACKUP_DIR=/app/backups
     depends_on:
       postgres:
         condition: service_healthy
       tombstone-db:
+        condition: service_healthy
+      leak-db:
         condition: service_healthy
       llama-cpp:
         condition: service_healthy
@@ -141,6 +148,27 @@ services:
       - tombstonedata:/var/lib/postgresql/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sqlutions} -d ${DELETED_USERS_DB_NAME:-deleted_users_db}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # -------------------- Database (vazamentos) --------------------
+  # Banco independente: guarda apenas os avisos de vazamento e NÃO é
+  # restaurado junto com os backups da aplicação.
+  leak-db:
+    image: postgres:16-alpine
+    container_name: leak-db
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-sqlutions}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-senha_padrao}
+      - POSTGRES_DB=${LEAKS_DB_NAME:-leaks_db}
+    ports:
+      - "5435:5432"
+    volumes:
+      - leakdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sqlutions} -d ${LEAKS_DB_NAME:-leaks_db}" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -231,6 +259,7 @@ services:
 volumes:
   postgresdata:
   tombstonedata:
+  leakdata:
   ollamadata:
   keycloakdb:
   llamacppmodels:

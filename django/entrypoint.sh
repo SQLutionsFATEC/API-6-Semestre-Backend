@@ -31,6 +31,21 @@ else
     exit 1
 fi
 
+# O banco de vazamentos é independente do banco da aplicação e também precisa
+# das próprias migrations (apenas o model Vazamento é criado nele).
+echo "$SEPARATOR"
+echo "🛠️ INICIANDO DATABASE MIGRATIONS (leaks)..."
+echo "$SEPARATOR"
+
+if python manage.py migrate --database=leaks --noinput; then
+    echo "✅ SUCESSO: migrations do banco de vazamentos aplicadas."
+    echo "$SEPARATOR"
+else
+    echo "❌ FATAL ERROR: falha ao aplicar as migrations do banco de vazamentos." >&2
+    echo "$SEPARATOR" >&2
+    exit 1
+fi
+
 if [[ "$#" -gt 0 ]]; then
     echo "$SEPARATOR"
     echo "🚀 Executando comando do container:"

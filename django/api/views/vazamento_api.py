@@ -6,9 +6,11 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
+from api.db_routers import VAZAMENTO_DB
 from api.models import Vazamento
 from api.serializers.vazamento_serializer import VazamentoSerializer
 from api.services import keycloak_admin
+from api.services.aviso_vazamento import enviar_aviso_vazamento
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ class VazamentoView(APIView):
         return [AllowAny()]
 
     def get(self, request):
-        vazamento_recente = Vazamento.objects.first()
+        vazamento_recente = Vazamento.objects.using(VAZAMENTO_DB).first()
 
         if not vazamento_recente:
             return Response(
@@ -65,7 +67,7 @@ class VazamentoView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY
             )
 
-        vazamento = Vazamento.objects.create()
+        vazamento = Vazamento.objects.using(VAZAMENTO_DB).create()
     
         try:
             _sinalizar_restauracao_backup()
@@ -75,6 +77,10 @@ class VazamentoView(APIView):
                 {"dsetail": "Vazamento registrado, mas falha ao sinalizar a restauração de backup."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
+
+        # Best-effort: o incidente já está registrado e a restauração já foi
+        # sinalizada; uma falha no aviso não muda a resposta.
+        enviar_aviso_vazamento(vazamento)
+
         serializer = VazamentoSerializer(vazamento)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

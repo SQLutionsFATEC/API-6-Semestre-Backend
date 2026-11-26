@@ -43,6 +43,25 @@ services:
       start_period: 10s
     restart: "no"
 
+  leak-test-db:
+    image: postgres:16-alpine
+    container_name: leak-test-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: integration_test_password
+      POSTGRES_DB: leaks_test_db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d leaks_test_db"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: "no"
+
   backend-test:
     build:
       context: ../django
@@ -61,10 +80,17 @@ services:
       DELETED_USERS_DB_PASSWORD: integration_test_password
       DELETED_USERS_DB_HOST: tombstone-test-db
       DELETED_USERS_DB_PORT: 5432
+      LEAKS_DB_NAME: leaks_test_db
+      LEAKS_DB_USER: postgres
+      LEAKS_DB_PASSWORD: integration_test_password
+      LEAKS_DB_HOST: leak-test-db
+      LEAKS_DB_PORT: 5432
     depends_on:
       postgres-test:
         condition: service_healthy
       tombstone-test-db:
+        condition: service_healthy
+      leak-test-db:
         condition: service_healthy
     volumes:
       - ../django:/app
