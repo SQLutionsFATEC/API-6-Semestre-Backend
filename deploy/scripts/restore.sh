@@ -9,13 +9,16 @@
 #   2. para backend e Keycloak;
 #   3. restaura o banco da aplicação e o banco do Keycloak;
 #   4. restaura a mídia;
-#   5. mescla (união) os tombstones confirmados do backup no banco
+#   5. aplica as migrations do banco da aplicação, do banco de tombstones e do
+#      banco de vazamentos;
+#   6. mescla (união) os tombstones confirmados do backup no banco
 #      independente — nunca remove tombstones já existentes;
-#   6. sobe o Keycloak/backend e executa purge_deleted_users --verificar,
+#   7. sobe o Keycloak/backend e executa purge_deleted_users --verificar,
 #      que anonimiza no Keycloak restaurado todo usuário tombstoned e falha
 #      se algum deles ainda tiver dados pessoais.
 #
-# O banco de tombstones em si NUNCA é restaurado por cima do banco vivo.
+# Nem o banco de tombstones nem o banco de vazamentos são restaurados por cima
+# do banco vivo: o registro do vazamento precisa sobreviver à restauração.
 
 set -euo pipefail
 
@@ -66,6 +69,7 @@ fi
 require_running_service "$APP_DB_SERVICE"
 require_running_service "$KEYCLOAK_DB_SERVICE"
 require_running_service "$TOMBSTONE_DB_SERVICE"
+require_running_service "$LEAK_DB_SERVICE"
 
 log 'Parando backend e Keycloak...'
 "${COMPOSE[@]}" stop "$BACKEND_SERVICE" "$KEYCLOAK_SERVICE" >/dev/null 2>&1 || true
@@ -86,10 +90,6 @@ if [[ -s "$BACKUP_DIR/media.tar.gz" ]]; then
     tar xzf "$BACKUP_DIR/media.tar.gz" -C "$DEPLOY_DIR/../django" --overwrite
 fi
 
-log 'Marcando migration problemática como aplicada (--fake, sem entrypoint)...'
-"${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python "$BACKEND_SERVICE" \
-    manage.py migrate api 0008_termo_clausula_clausulatermo --fake
-
 log 'Aplicando migrations do banco da aplicação (sem entrypoint)...'
 "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python "$BACKEND_SERVICE" \
     manage.py migrate --noinput
@@ -97,6 +97,10 @@ log 'Aplicando migrations do banco da aplicação (sem entrypoint)...'
 log 'Aplicando migrations do banco de tombstones (sem entrypoint)...'
 "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python "$BACKEND_SERVICE" \
     manage.py migrate --database=tombstones --noinput
+
+log 'Aplicando migrations do banco de vazamentos (sem entrypoint)...'
+"${COMPOSE[@]}" run --rm --no-deps -T --entrypoint python "$BACKEND_SERVICE" \
+    manage.py migrate --database=leaks --noinput
 
 log 'Mesclando tombstones confirmados do backup (união, sem apagar registros atuais)...'
 TMP_DIR="$(mktemp -d "$DEPLOY_DIR/.restore-tombstones-XXXXXX")"
