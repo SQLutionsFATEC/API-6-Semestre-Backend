@@ -219,6 +219,8 @@ EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'false').lower() in ('1', 'true'
 DEFAULT_FROM_EMAIL = os.environ.get(
     'DEFAULT_FROM_EMAIL', 'nao-responda@sqlutions.example.com'
 )
+# Canal de contato divulgado no aviso de vazamento de dados.
+SUPORTE_EMAIL = os.environ.get('SUPORTE_EMAIL', 'suporte@sqlutions.example.com')
 
 LOGGING = {
     'version': 1,
