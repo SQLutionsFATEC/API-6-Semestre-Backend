@@ -42,6 +42,32 @@ def test_comando_listar_inicializa_e_exibe_termo():
 
 
 @pytest.mark.django_db
+def test_comando_historico_exibe_todos_os_termos():
+    termo_inicial = garantir_termo_inicial()
+    out_criar = StringIO()
+    call_command(
+        'gerenciar_termos',
+        'criar',
+        '--requisito',
+        'coleta_telefone',
+        '--desc',
+        'Coleta de telefone',
+        stdout=out_criar,
+    )
+    termo_seguinte = Termo.objects.order_by('-id_termo').first()
+
+    out_historico = StringIO()
+    call_command('gerenciar_termos', 'historico', stdout=out_historico)
+    saida = out_historico.getvalue()
+
+    assert 'Histórico dos termos' in saida
+    assert f'Termo #{termo_inicial.id_termo}' in saida
+    assert f'Termo #{termo_seguinte.id_termo}' in saida
+    assert 'coleta_nome' in saida
+    assert 'coleta_telefone' in saida
+
+
+@pytest.mark.django_db
 def test_comando_criar_clausula_via_argumentos():
     termo_inicial = garantir_termo_inicial()
     out = StringIO()
@@ -91,6 +117,34 @@ def test_comando_criar_clausulas_via_json(tmp_path):
     assert 'item_1' in saida
     assert 'item_2' in saida
     assert termo_2.clausulas.count() == 4
+
+
+@pytest.mark.django_db
+def test_comando_criar_termo_cria_versao_somente_com_clausulas_do_json(tmp_path):
+    termo_inicial = garantir_termo_inicial()
+    arquivo_json = tmp_path / 'novo_termo.json'
+    dados = [
+        {'requisito': 'termo_personalizado_1', 'desc': 'Primeira cláusula', 'obrigatoria': True},
+        {'requisito': 'termo_personalizado_2', 'desc': 'Segunda cláusula', 'obrigatoria': False},
+    ]
+    arquivo_json.write_text(json.dumps(dados), encoding='utf-8')
+
+    out = StringIO()
+    call_command(
+        'gerenciar_termos',
+        'criar-termo',
+        '--json',
+        str(arquivo_json),
+        stdout=out,
+    )
+    termo_novo = Termo.objects.order_by('-id_termo').first()
+    requisitos = set(termo_novo.clausulas.values_list('requisito', flat=True))
+
+    assert termo_novo.id_termo > termo_inicial.id_termo
+    assert requisitos == {'termo_personalizado_1', 'termo_personalizado_2'}
+    assert termo_inicial.clausulas.count() == 2
+    assert f'Termo #{termo_novo.id_termo}' in out.getvalue()
+    assert 'Termo criado do zero com sucesso' in out.getvalue()
 
 
 @pytest.mark.django_db
