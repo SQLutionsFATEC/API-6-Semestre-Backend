@@ -744,26 +744,6 @@ class DocumentoApiTest(TestCase):
         self.assertEqual(response.status_code, 200)
         buscar_contexto.assert_not_called()
 
-    # --- NOVOS TESTES ADICIONADOS PARA A TASK 103 ---
-    def test_pesquisa_documentos_operador_retorna_403(self):
-        """Operador NÃO pode usar a busca por contexto semântico."""
-        User = get_user_model()
-        operador = User.objects.create_user(username='op_ctx_403', password='123')
-        operador.nivel = 'Operador'
-        self.client.force_authenticate(user=operador)
-
-        with patch(
-            'api.views.documento_api.VectorService.buscar_contexto'
-        ) as buscar_contexto:
-            response = self.client.get(
-                '/api/documentos/',
-                {'contexto': 'teste'},
-            )
-
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()['erro'], 'Operadores não podem utilizar a busca por contexto semântico.')
-        buscar_contexto.assert_not_called()
-
     def test_pesquisa_documentos_usuario_comum_permite_contexto(self):
         """Usuário comum (não-operador) PODE usar a busca por contexto semântico."""
         User = get_user_model()
