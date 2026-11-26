@@ -1,5 +1,6 @@
 """Testes do comando de consulta de consentimentos."""
 
+import re
 from io import StringIO
 
 import pytest
@@ -59,10 +60,12 @@ def test_comando_atual_exibe_estado_do_termo_vigente(estado_inicial):
         'atual',
         ID_USUARIO,
         stdout=saida,
+        force_color=True,
     )
 
-    assert '[RECUSADO]' in saida.getvalue()
-    assert '[SEM RESPOSTA]' in saida.getvalue()
+    texto = saida.getvalue()
+    assert re.search(r'\[\x1b\[[0-9;]*mRECUSADO\x1b\[[0-9;]*m\]', texto)
+    assert re.search(r'\[\x1b\[[0-9;]*mSEM RESPOSTA\x1b\[[0-9;]*m\]', texto)
 
 
 @pytest.mark.django_db

@@ -100,29 +100,44 @@ class Command(BaseCommand):
             raise CommandError(str(erro)) from erro
 
         if registros:
+            estilo = self.style.SUCCESS if decisao == 'aceitar' else self.style.ERROR
             self.stdout.write(
-                self.style.SUCCESS(
+                estilo(
                     f'Decisão "{decisao}" registrada para {len(registros)} '
                     f'cláusula(s) do usuário {id_usuario}.'
                 )
             )
         else:
             self.stdout.write(
-                f'Nenhuma alteração necessária para as cláusulas do usuário '
-                f'{id_usuario}.'
+                self.style.WARNING(
+                    f'Nenhuma alteração necessária para as cláusulas do usuário '
+                    f'{id_usuario}.'
+                )
             )
 
     def _handle_historico(self, id_usuario):
         """Exibe decisões de consentimento, períodos e termos inferidos."""
         historico = obter_historico_consentimentos_usuario(id_usuario)
         if not historico:
-            self.stdout.write('Nenhum aceite ou recusa encontrado para esse usuário.')
+            self.stdout.write(
+                self.style.WARNING(
+                    'Nenhum aceite ou recusa encontrado para esse usuário.'
+                )
+            )
             return
 
-        self.stdout.write(f'Histórico de consentimento do usuário {id_usuario}:')
+        self.stdout.write(
+            self.style.SUCCESS(
+                f'Histórico de consentimento do usuário {id_usuario}:'
+            )
+        )
         for item in historico:
             evento = item['consentimento']
-            status = 'ACEITO' if evento.acordo else 'RECUSADO'
+            status = (
+                self.style.SUCCESS('ACEITO')
+                if evento.acordo
+                else self.style.ERROR('RECUSADO')
+            )
             self.stdout.write(
                 f'\n[{evento.timestamp_consentimento}] {status} — '
                 f'Cláusula #{evento.id_clausula_id} '
@@ -153,21 +168,25 @@ class Command(BaseCommand):
         estados = obter_consentimentos_usuario(id_usuario)
 
         self.stdout.write(
-            f'Termo atual #{termo.id_termo} (criado em {termo.data_criacao}) '
-            f'para o usuário {id_usuario}:'
+            self.style.SUCCESS(
+                f'Termo atual #{termo.id_termo} (criado em {termo.data_criacao}) '
+                f'para o usuário {id_usuario}:'
+            )
         )
         if not estados:
-            self.stdout.write('  O termo atual não possui cláusulas.')
+            self.stdout.write(
+                self.style.WARNING('  O termo atual não possui cláusulas.')
+            )
             return
 
         for item in estados:
             acordo = item['acordo']
             status = (
-                'ACEITO'
+                self.style.SUCCESS('ACEITO')
                 if acordo is True
-                else 'RECUSADO'
+                else self.style.ERROR('RECUSADO')
                 if acordo is False
-                else 'SEM RESPOSTA'
+                else self.style.NOTICE('SEM RESPOSTA')
             )
             clausula = item['clausula']
             self.stdout.write(
